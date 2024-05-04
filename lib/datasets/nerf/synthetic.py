@@ -36,12 +36,17 @@ class Dataset(data.Dataset):
                 img = cv2.resize(img, None, fx=self.input_ratio, fy=self.input_ratio, interpolation=cv2.INTER_AREA)
             imgs.append(img)
         # set images
-        self.imgs = np.array(imgs).astype(np.float32) # [N, H, W, 3] such as [100, 400, 400, 3]
+        self.imgs = np.array(imgs).astype(np.float64) # [N, H, W, 3] such as [100, 400, 400, 3]
 
         self.H, self.W = self.imgs[0].shape[:2]
 
         camera_angle_x = float(json_info['camera_angle_x'])
         self.focal = .5 * self.W / np.tan(.5 * camera_angle_x)
+
+        # temporary for blender dataset
+        # TODO: change near and far for different dataset
+        self.near = 2.
+        self.far = 6.
 
         self.K = np.array([
             [self.focal, 0, 0.5 * self.W],
@@ -52,23 +57,41 @@ class Dataset(data.Dataset):
         self.rays = np.stack([np.stack(self.get_rays(self.H, self.W, self.K, p)) for p in self.poses[:, :3, :4]], 0)
         self.rays = np.transpose(self.rays, [0, 2, 3, 1, 4])
 
+        self.cascade_samples = cfg.task_arg.cascade_samples
+
     def __getitem__(self, index):
         if self.split == 'train':
-            ids = np.random.choice(self._len, self.batch_size, replace=False)
-            gt = self.imgs.reshape(-1, 3)[ids]
-            rays = self.rays.reshape(-1, 2, 3)[ids]
+            img_i = np.random.choice(self._len)
+            tgt_img = self.imgs[img_i]
+            tgt_rays = self.rays[img_i]
+            n_rays_in_one_img = np.prod(tgt_img.shape[:2])
+            ids = np.random.choice(n_rays_in_one_img, self.batch_size, replace=False)
+            gt = tgt_img.reshape(-1, 3)[ids]
+            rays = tgt_rays.reshape(-1, 2, 3)[ids]
         else:
-            gt = self.imgs.reshape(-1, 3)
-            rays = self.rays.reshape(-1, 2, 3)
-        ret = {'gt': gt, 'rays': rays} # input and output. they will be sent to cuda
-        ret.update({'meta': {'H': self.H, 'W': self.W}}) # meta means no need to send to cuda
+            img_i = np.random.choice(self._len)
+            tgt_img = self.imgs[img_i]
+            tgt_rays = self.rays[img_i]
+            gt = tgt_img.reshape(-1, 3)
+            rays = tgt_rays.reshape(-1, 2, 3)
+        ret = {'rgb': gt, 'rays': rays} # input and output. they will be sent to cuda
+        ret.update({'meta': {'H': self.H, 'W': self.W,
+                             'K': self.K, 'near': self.near,
+                             'far': self.far,
+                             'cascade_samples': self.cascade_samples
+        }}) # meta means no need to send to cuda
         return ret
 
     def __len__(self):
-        return self._len
+        if self.split == 'train':
+
+            return self._len
+        else:
+            return 1
 
 
     def get_rays(self, H, W, K, c2w):
+        # numpy as input type
         i, j = np.meshgrid(np.arange(W, dtype=np.float32), np.arange(H, dtype=np.float32), indexing='xy')
         dirs = np.stack([(i - K[0][2]) / K[0][0], -(j - K[1][2]) / K[1][1], -np.ones_like(i)], -1)
         # Rotate ray directions from camera frame to the world frame
