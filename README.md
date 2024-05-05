@@ -6,8 +6,14 @@ Forked from [LearningNeRF](https://github.com/pengsida/learning_nerf)
 ## TODO
 - [x] Add a simple synthetic dataset
 - [x] Add a simple NeRF network
-- [] Add importance sampling method
-- [] Adapt to other dataset
+- [ ] Add importance sampling method
+- [ ] Adapt to other dataset
+
+## Result
+
+without importance sampling, 300 epochs, PSNR: 24.914
+![img.png](assets/imgs/img.png)
+
 
 ## Introduction
 ### 配置文件
@@ -28,7 +34,7 @@ getitem函数负责在运行时提供给网络一次训练需要的输入，以�
 len函数是训练或者测试的数量。getitem函数获得的index值通常是[0, len-1]。
 
 
-#### debug：
+#### debug dataset：
 
 ```
 python run.py --type dataset --cfg_file configs/nerf/nerf.yaml
