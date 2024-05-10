@@ -9,6 +9,11 @@ from plyfile import PlyData
 from lib.utils import data_config
 import re
 
+def normalize(x: torch.Tensor, eps: float = 1e-8):
+    # channel last: normalization
+    return x / (torch.norm(x, dim=-1, keepdim=True) + eps)
+
+
 def read_cam_file(filename):
     with open(filename) as f:
         lines = [line.rstrip() for line in f.readlines()]
@@ -200,7 +205,7 @@ def draw_umich_gaussian(heatmap, center, radius, k=1):
 
     masked_heatmap = heatmap[y - top:y + bottom, x - left:x + right]
     masked_gaussian = gaussian[radius - top:radius + bottom, radius - left:radius + right]
-    if min(masked_gaussian.shape) > 0 and min(masked_heatmap.shape) > 0: # TODO debug
+    if min(masked_gaussian.shape) > 0 and min(masked_heatmap.shape) > 0:
         np.maximum(masked_heatmap, masked_gaussian * k, out=masked_heatmap)
     return heatmap
 
@@ -218,7 +223,7 @@ def draw_distribution(heatmap, center, sigma_x, sigma_y, rho, radius, k=1):
 
     masked_heatmap = heatmap[y - top:y + bottom, x - left:x + right]
     masked_gaussian = gaussian[radius - top:radius + bottom, radius - left:radius + right]
-    if min(masked_gaussian.shape) > 0 and min(masked_heatmap.shape) > 0: # TODO debug
+    if min(masked_gaussian.shape) > 0 and min(masked_heatmap.shape) > 0:
         np.maximum(masked_heatmap, masked_gaussian * k, out=masked_heatmap)
     return heatmap
 

@@ -14,6 +14,7 @@ class HexPlane(nn.Module):
         b = kwargs['b']
         base_resolution = kwargs['base_resolution']
         dim_time = kwargs['dim_time']
+        bounds = kwargs['bounds']
         std = 1e-1
         self.bounds = make_buffer(torch.as_tensor(bounds, dtype=torch.float))
 
