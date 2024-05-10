@@ -14,6 +14,9 @@ def sigmoid(x):
     y = torch.clamp(x.sigmoid(), min=1e-4, max=1 - 1e-4)
     return y
 
+def make_buffer(params: torch.Tensor):
+    return nn.Parameter(torch.as_tensor(params), requires_grad=False)
+
 
 def _neg_loss(pred, gt):
     ''' Modified focal loss. Exactly the same as CornerNet.

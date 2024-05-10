@@ -69,5 +69,9 @@ def get_encoder(cfg):
         cfg.bbox = global_cfg.bbox
         encoder = GridHashEncoder(cfg)
         return encoder, encoder.out_dim
+    elif cfg.type == 'hexplane':
+        from lib.networks.encoding.hexplane import HexPlane
+        encoder = HexPlane(**cfg)
+        return encoder, encoder.out_dim
     else:
         raise NotImplementedError
