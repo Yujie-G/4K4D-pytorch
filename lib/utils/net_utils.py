@@ -1,6 +1,7 @@
 import torch
 import os
 from torch import nn
+import torch.nn.functional as F
 import numpy as np
 import torch.nn.functional
 from collections import OrderedDict
@@ -17,6 +18,18 @@ def sigmoid(x):
 def make_buffer(params: torch.Tensor):
     return nn.Parameter(torch.as_tensor(params), requires_grad=False)
 
+
+def get_function(f):
+    if isinstance(f, str):
+        try: return getattr(F, f)  # 'softplus'
+        except AttributeError: pass
+        try: return getattr(nn, f)()  # 'Identity'
+        except AttributeError: pass
+        # Using eval is dangerous, will never support that
+    elif isinstance(f, nn.Module):
+        return f  # nn.Identity()
+    else:
+        return f()  # nn.Identity
 
 def _neg_loss(pred, gt):
     ''' Modified focal loss. Exactly the same as CornerNet.
@@ -462,3 +475,92 @@ def save_pretrain(net, task, model_dir):
     torch.save(model, os.path.join(model_dir, 'latest.pth'))
 
 
+
+class MLP(nn.Module):
+    def __init__(self, input_dim, output_dim, width, depth, actvn='relu', out_actvn=nn.Identity(), **kwargs):
+        super(MLP, self).__init__()
+        self.layers = nn.ModuleList()
+        self.layers.append(nn.Linear(input_dim, width))
+        for _ in range(depth - 1):
+            self.layers.append(nn.Linear(width, width))
+        self.layers.append(nn.Linear(width, output_dim))
+        self.actvn = get_function(actvn) if isinstance(actvn, str) else actvn
+        self.out_actvn = get_function(out_actvn) if isinstance(out_actvn, str) else out_actvn
+
+    def forward(self, x):
+        for i, layer in enumerate(self.layers):
+            x = layer(x)
+            if i < len(self.layers) - 1:
+                x = self.actvn(x)
+        return self.out_actvn(x)
+
+
+class ConvBnReLU(nn.Module):
+    def __init__(self, in_channels, out_channels,
+                 kernel_size=3, stride=1, pad=1,
+                 norm_actvn=nn.BatchNorm2d):
+        super(ConvBnReLU, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, padding=pad, bias=False)
+        self.bn = norm_actvn(out_channels)
+        self.relu = nn.ReLU(inplace=True)  # might pose problem for pass through optimization, albeit faster
+
+    def forward(self, x):
+        return self.relu(self.bn(self.conv(x)))
+
+class FeatureNet(nn.Module):
+    def __init__(self, norm_actvn=nn.BatchNorm2d, test_using_train: bool = True):
+        super(FeatureNet, self).__init__()
+        norm_actvn = getattr(nn, norm_actvn) if isinstance(norm_actvn, str) else norm_actvn
+
+        self.conv0 = nn.Sequential(
+            ConvBnReLU(3, 8, 3, 1, 1, norm_actvn=norm_actvn),
+            ConvBnReLU(8, 8, 3, 1, 1, norm_actvn=norm_actvn))
+        self.conv1 = nn.Sequential(
+            ConvBnReLU(8, 16, 5, 2, 2, norm_actvn=norm_actvn),
+            ConvBnReLU(16, 16, 3, 1, 1, norm_actvn=norm_actvn))
+        self.conv2 = nn.Sequential(
+            ConvBnReLU(16, 32, 5, 2, 2, norm_actvn=norm_actvn),
+            ConvBnReLU(32, 32, 3, 1, 1, norm_actvn=norm_actvn))
+
+        self.toplayer = nn.Conv2d(32, 32, 1)
+        self.lat1 = nn.Conv2d(16, 32, 1)
+        self.lat0 = nn.Conv2d(8, 32, 1)
+
+        self.smooth1 = nn.Conv2d(32, 16, 3, padding=1)
+        self.smooth0 = nn.Conv2d(32, 8, 3, padding=1)
+
+        self.out_dims = [32, 16, 8]  # output dimensionality
+        self.scales = [0.25, 0.5, 1.0]
+        self.size_pad = 4  # input size should be divisible by 4
+        self.test_using_train = test_using_train
+
+    def _upsample_add(self, x, y):
+        return F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=False) + y
+
+    def forward(self, x: torch.Tensor):
+        # x: (B, S, C, H, W) or (B, C, H, W) or (C, H, W)
+        # Remember input shapes
+        sh = x.shape
+        x = x.view(-1, *sh[-3:])  # (B, C, H, W)
+
+        # NOTE: We assume normalized -1, 1 rgb input for feature_net
+
+        # Actual conv net
+        conv0 = self.conv0(x)
+        conv1 = self.conv1(conv0)
+        conv2 = self.conv2(conv1)
+        feat2 = self.toplayer(conv2)
+        feat1 = self._upsample_add(feat2, self.lat1(conv1))
+        feat0 = self._upsample_add(feat1, self.lat0(conv0))
+        feat1 = self.smooth1(feat1)
+        feat0 = self.smooth0(feat0)
+
+        # Restore original shapes
+        feat2 = feat2.view(sh[:-3] + feat2.shape[-3:])
+        feat1 = feat1.view(sh[:-3] + feat1.shape[-3:])
+        feat0 = feat0.view(sh[:-3] + feat0.shape[-3:])
+        return feat2, feat1, feat0  # level0, level1, level2
+
+    def train(self, mode: bool):
+        if not mode and self.test_using_train: return
+        super().train(mode)

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from lib.config import cfg
-from lib.train.losses.vgg_perceptual_loss import VGGPerceptualLoss
+from lpips import LPIPS
 
 class NetworkWrapper(nn.Module):
     def __init__(self, net, train_loader):
@@ -13,23 +13,7 @@ class NetworkWrapper(nn.Module):
 
         self.perc_loss_weight = cfg.train.lmbda1
         self.msk_loss_weight = cfg.train.lmbda2
-        self.lpips = VGGPerceptualLoss()
-
-    def mIoU_loss(self, x: torch.Tensor, y: torch.Tensor):
-        """
-        Compute the mean intersection of union loss over masked regions
-        x, y: B, N, 1
-        """
-        I = (x * y).sum(-1).sum(-1)
-        U = (x + y).sum(-1).sum(-1) - I
-        mIoU = (I / U.detach()).mean()
-        return 1 - mIoU
-
-    def compute_mask_loss(self, output, batch_msk):
-        msk_loss = self.mIoU_loss(output.acc_map, batch_msk)
-        loss = self.msk_loss_weight * msk_loss
-
-        return loss
+        self.lpips = LPIPS(net='vgg')
 
     def forward(self, batch):
         output = self.net(batch)
@@ -44,7 +28,7 @@ class NetworkWrapper(nn.Module):
         scalar_stats.update({'lpips': lpips_loss})
         loss += self.perc_loss_weight * lpips_loss
 
-        msk_loss = self.compute_mask_loss(output['acc_map'], batch['msk'])
+        msk_loss = self.color_crit(output['mask'], batch['mask'])
         scalar_stats.update({'msk_loss': msk_loss})
         loss += self.msk_loss_weight * msk_loss
 

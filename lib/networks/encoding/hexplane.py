@@ -4,7 +4,7 @@ from torch.nn import functional as F
 from lib.config import cfg, args
 from lib.utils.net_utils import make_buffer
 
-# TODO: DEBUG THIS
+# FIXME
 class HexPlane(nn.Module):
     def __init__(self, **kwargs):
         super().__init__()
@@ -33,10 +33,11 @@ class HexPlane(nn.Module):
         for data in self.temporal_embedding:
             data.data.uniform_(-std, std)
 
-
         self.xy = make_buffer(torch.as_tensor([0, 1], dtype=torch.long))  # to avoid synchronization
         self.xz = make_buffer(torch.as_tensor([0, 2], dtype=torch.long))  # to avoid synchronization
         self.yz = make_buffer(torch.as_tensor([1, 2], dtype=torch.long))  # to avoid synchronization
+
+        self.out_dim = n_features_per_level * 24  # 4C for each of the 6 planes
 
     def forward(self, xyz: torch.Tensor, t: torch.Tensor, batch):
         bash = xyz.shape  # batch shape

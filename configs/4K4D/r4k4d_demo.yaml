@@ -1,0 +1,40 @@
+task: 4k4d
+gpus: [0]
+exp_name: {{fileBasenameNoExtension}}
+scene: 'renbody'
+
+# module path
+train_dataset_module: lib.datasets.r4K4D.volumetric_video
+test_dataset_module: lib.datasets.r4K4D.volumetric_video
+network_module: lib.networks.r4K4D.network
+loss_module: lib.train.losses.r4K4D_reg
+
+# TODO: add evaluator
+#evaluator_module: lib.evaluators.r4K4D
+
+# TODO[future]: add visualizer
+#visualizer_module: lib.visualizers.r4K4D
+
+
+train_dataset:
+    data_root: 'data/renbody/0013_01'
+    split: 'train'
+
+model_cfg:
+    network_encoder:
+        xyzt_encoder_cfg:
+            type: 'hexplane'
+            n_levels: 2
+        ibr_encoder_cfg:
+            n_levels: 2
+    geo_linear:
+        width: 64
+        depth: 2
+        out_dim: 2 # radius, density
+
+
+
+
+ep_iter: 50
+eval_ep: 10
+save_latest_ep: 1
