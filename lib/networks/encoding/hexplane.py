@@ -4,19 +4,18 @@ from torch.nn import functional as F
 from lib.config import cfg, args
 from lib.utils.net_utils import make_buffer
 
-# FIXME
 class HexPlane(nn.Module):
     def __init__(self, **kwargs):
         super().__init__()
         self.kwargs = kwargs
         n_features_per_level = kwargs['n_features_per_level']
-        n_levels = kwargs['n_levels']
-        b = kwargs['b']
-        base_resolution = kwargs['base_resolution']
-        dim_time = kwargs['dim_time']
-        bounds = kwargs['bounds']
+        n_levels = kwargs['n_levels'] if 'n_levels' in kwargs else 4
+        b = kwargs['b'] if 'b' in kwargs else 2
+        base_resolution = kwargs['base_resolution'] if 'base_resolution' in kwargs else 16
+        dim_time = cfg.task_arg.dim_time
+        # bounds = kwargs['bounds']
         std = 1e-1
-        self.bounds = make_buffer(torch.as_tensor(bounds, dtype=torch.float))
+        # self.bounds = make_buffer(torch.as_tensor(bounds, dtype=torch.float))
 
         # use torch as backbone
         self.spatial_embedding = nn.ParameterList([
@@ -37,13 +36,13 @@ class HexPlane(nn.Module):
         self.xz = make_buffer(torch.as_tensor([0, 2], dtype=torch.long))  # to avoid synchronization
         self.yz = make_buffer(torch.as_tensor([1, 2], dtype=torch.long))  # to avoid synchronization
 
-        self.out_dim = n_features_per_level * 24  # 4C for each of the 6 planes
+        self.out_dim = n_features_per_level * n_levels * 6  # 4C for each of the 6 planes
 
     def forward(self, xyz: torch.Tensor, t: torch.Tensor, batch):
         bash = xyz.shape  # batch shape
         xyz = xyz.view(-1, xyz.shape[-1])
         t = t.reshape(-1, t.shape[-1])
-        xyz = (xyz - self.bounds[0]) / (self.bounds[1] - self.bounds[0])  # normalized, N, 3
+        # TODO: xyz = (xyz - self.bounds[0]) / (self.bounds[1] - self.bounds[0])  # normalized, N, 3
 
         # get, xy, xz, yz, tx, ty, tz
         spatial_coords = torch.stack([xyz[..., self.xy.long()], xyz[..., self.xz.long()], xyz[..., self.yz.long()]],

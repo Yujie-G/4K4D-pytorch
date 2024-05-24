@@ -5,9 +5,14 @@ class GeoLinear(nn.Module):
     def __init__(self, feature_dim, cfg):
         super(GeoLinear, self).__init__()
         W, D = cfg.width, cfg.depth
-        out_dim = cfg.out_dim
-        self.linear = nn.ModuleList(
-            [nn.Linear(feature_dim, W) for _ in range(D)] + [nn.Linear(W, out_dim)])
+
+        linear = []
+        linear.append(nn.Linear(feature_dim, W))
+        for i in range(D - 1):
+            linear.append(nn.Linear(W, W))
+        linear.append(nn.Linear(W, 2))
+        self.linear = nn.ModuleList(linear)
+        self.out_dim = 2
 
     def geo_actvn(self, x: torch.Tensor,
                   radius_min: float,
@@ -24,5 +29,5 @@ class GeoLinear(nn.Module):
         for layer in self.linear:
             h = layer(h)
 
-        r, a = self.geo_actvn(h, 0.001, 0.015, -5.0, 5.0)
-        return r, a
+        r, dens = self.geo_actvn(h, 0.001, 0.015, -5.0, 5.0)
+        return r, dens
