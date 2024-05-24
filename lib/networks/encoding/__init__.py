@@ -73,5 +73,9 @@ def get_encoder(cfg):
         from lib.networks.encoding.hexplane import HexPlane
         encoder = HexPlane(**cfg)
         return encoder, encoder.out_dim
+    elif cfg.type == 'geo_ibr':
+        from lib.networks.encoding.geoIBR import GeometryImageBasedEmbedder
+        encoder = GeometryImageBasedEmbedder(**cfg)
+        return encoder, encoder.out_dim
     else:
         raise NotImplementedError

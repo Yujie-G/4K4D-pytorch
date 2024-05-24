@@ -1,11 +1,11 @@
 task: 4k4d
 gpus: [0]
-exp_name: {{fileBasenameNoExtension}}
+exp_name: 'r4k4d_demo'
 scene: 'renbody'
 
 # module path
-train_dataset_module: lib.datasets.r4K4D.volumetric_video
-test_dataset_module: lib.datasets.r4K4D.volumetric_video
+train_dataset_module: lib.datasets.r4K4D.renbody_video
+test_dataset_module: lib.datasets.r4K4D.renbody_video
 network_module: lib.networks.r4K4D.network
 loss_module: lib.train.losses.r4K4D_reg
 
@@ -14,18 +14,32 @@ loss_module: lib.train.losses.r4K4D_reg
 
 # TODO[future]: add visualizer
 #visualizer_module: lib.visualizers.r4K4D
+task_arg:
+    dim_time : 1
+    camera_use: 48
 
 
 train_dataset:
     data_root: 'data/renbody/0013_01'
     split: 'train'
+    nearset_num: 4
+    input_ratio: 1.0
+
+
+test_dataset:
+    data_root: 'data/renbody/0013_01'
+    split: 'test'
 
 model_cfg:
+    skip_loading_points: False
+    pcds_dir: 'data/renbody/0013_01/surfs'
     network_encoder:
         xyzt_encoder_cfg:
             type: 'hexplane'
-            n_levels: 2
+            n_levels: 4
+            n_features_per_level: 32
         ibr_encoder_cfg:
+            type: 'geo_ibr'
             n_levels: 2
     geo_linear:
         width: 64
