@@ -7,6 +7,17 @@ import numpy as np
 import cv2
 from typing import List
 from lib.utils import data_config
+from PIL import Image
+
+def save_tensor_image(image_tensor, file_path):
+    # Convert the tensor to a numpy array
+    image_np = image_tensor.cpu().numpy()
+
+    # Convert the numpy array to a PIL Image
+    image_pil = Image.fromarray(np.uint8(image_np))
+
+    # Save the PIL Image to the specified file path
+    image_pil.save(file_path)
 
 
 def unnormalize_img(img, mean, std):
