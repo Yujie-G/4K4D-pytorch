@@ -5,32 +5,31 @@ from lib.utils.net_utils import MLP as MlpRegressor
 from lib.utils.img_utils import eval_sh
 
 class ImageBasedSphericalHarmonics(nn.Module):
-    def __init__(self,
-                 sh_deg: int = 3,
-                 in_dim: int = 256 + 3,  # feature channel dim (vox + img?)
-                 src_dim: int = 32 + 3,
-                 out_dim: int = 3,
-                 width: int = 64,
-                 depth: int = 1,  # use small regressor network
-                 resd_limit: float = 0.25,
-                 resd_init: float = 0.0,
-                 resd_weight_init: float = 0.01,
-                 manual_chunking: bool = False,
-                 **kwargs,
-                 ) -> None:
-        super().__init__()
-        self.sh_deg = sh_deg
-        self.sh_dim = (sh_deg + 1) ** 2 * out_dim
-        self.in_dim = in_dim
-        self.out_dim = out_dim
+    def __init__(self,cfg) -> None:
+                 # sh_deg: int = 3,
+                 # in_dim: int = 192,  # feature channel dim (vox + img?)
+                 # src_dim: int = 8 + 3,
+                 # out_dim: int = 3,
+                 # width: int = 64,
+                 # depth: int = 1,  # use small regressor network
+                 # resd_limit: float = 0.25,
+                 # resd_init: float = 0.0,
+                 # resd_weight_init: float = 0.01,
+                 # manual_chunking: bool = False,
+                 # **kwargs,
 
-        self.resd_limit = resd_limit
-        self.manual_chunking = manual_chunking
-        self.rgb_mlp = MlpRegressor(in_dim - 3 + src_dim, 1, width, depth, out_actvn=nn.Identity(), actvn='relu', **kwargs)  # blend weights
-        self.sh_mlp = MlpRegressor(in_dim - 3, self.sh_dim, width, depth, out_actvn=nn.Identity(), actvn='softplus', **kwargs)
-        if resd_init is not None:
-            [self.sh_mlp.layers[i].weight.data.normal_(0, resd_weight_init) for i in range(len(self.sh_mlp.layers))]
-            [self.sh_mlp.layers[i].bias.data.fill_(resd_init if i == len(self.sh_mlp.mlp.linears) - 1 else -1) for i in range(len(self.sh_mlp.layers))]
+        super().__init__()
+        self.sh_deg = cfg.sh_deg
+        self.sh_dim = (self.sh_deg + 1) ** 2 * cfg.out_dim
+        self.in_dim = cfg.in_dim # feature channel 32 * 6
+        self.out_dim = cfg.out_dim
+        self.src_dim = cfg.src_dim # ibr_rgb_feat + 3
+
+        self.resd_limit = cfg.resd_limit if hasattr(cfg, 'resd_limit') else 0.25
+        self.rgb_mlp = MlpRegressor(self.in_dim + self.src_dim, 1, cfg.width, cfg.depth, out_actvn=nn.Identity(), actvn='relu')  # blend weights
+        self.sh_mlp = MlpRegressor(self.in_dim, self.sh_dim, cfg.width, cfg.depth, out_actvn=nn.Identity(), actvn='softplus')
+        [self.sh_mlp.layers[i].weight.data.normal_(0, 0.01) for i in range(len(self.sh_mlp.layers))]
+        [self.sh_mlp.layers[i].bias.data.fill_(0.0 if i == len(self.sh_mlp.layers) - 1 else -1) for i in range(len(self.sh_mlp.layers))]
 
     def forward(self, xyzt_feat_dir: torch.Tensor, batch):
         # geo_feat: B, P, C # vox(8) + img(16) + geo(64)?

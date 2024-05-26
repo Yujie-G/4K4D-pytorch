@@ -25,8 +25,6 @@ class Camera:
             cam_dict['K'] = self.read('K_{}'.format(cam_name), True)
             cam_dict['H'] = int(self.read('H_{}'.format(cam_name), True, dt='real')) or -1
             cam_dict['W'] = int(self.read('W_{}'.format(cam_name), True, dt='real')) or -1
-            # cam_dict['H'] = 256
-            # cam_dict['W'] = 256
             cam_dict['invK'] = np.linalg.inv(cam_dict['K'])
 
             # Extrinsics
@@ -46,8 +44,6 @@ class Camera:
             cam_dict["Rvec"] = Rvec
             cam_dict["P"] = cam_dict['K'] @ cam_dict['RT']
 
-            if (cam_dict['P'][0, 0] < 0):
-                a = 0
             # Distortion
             D = self.read('D_{}'.format(cam_name), True)
             if D is None: D = self.read('dist_{}'.format(cam_name), True)
@@ -87,7 +83,6 @@ class Camera:
             for t_frame, mask_file in enumerate(mask_files):
                 mask = imageio.imread(os.path.join(masks_path, cam_id, mask_file))
                 mask = np.array(mask).astype(np.float32)
-                # mask = cv2.resize(mask, (self.W, self.H), interpolation=cv2.INTER_AREA) # TODO: remove hardcoding
                 cam_i_mask.append(mask)
                 if t_frame > self.use_frames - 2:
                     break
@@ -136,7 +131,7 @@ class Camera:
         else:
             fs = self.extrix_file
         if dt == 'mat':
-            output = fs.getNode(node).mat()
+            output = fs.getNode(node).mat().astype(np.float32)
         elif dt == 'list':
             results = []
             n = fs.getNode(node)
@@ -166,4 +161,3 @@ class Camera:
     @property
     def get_timestep_length(self):
         return self.use_frames
-        # return len(self.all_timestep_pcds)

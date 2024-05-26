@@ -42,7 +42,7 @@ class HexPlane(nn.Module):
         bash = xyz.shape  # batch shape
         xyz = xyz.view(-1, xyz.shape[-1])
         t = t.reshape(-1, t.shape[-1])
-        # TODO: xyz = (xyz - self.bounds[0]) / (self.bounds[1] - self.bounds[0])  # normalized, N, 3
+        xyz = (xyz - batch['bounds'][:, 0, :3]) / (batch['bounds'][:, 1, :3] - batch['bounds'][:, 0, :3])  # normalized, N, 3
 
         # get, xy, xz, yz, tx, ty, tz
         spatial_coords = torch.stack([xyz[..., self.xy.long()], xyz[..., self.xz.long()], xyz[..., self.yz.long()]],
@@ -54,9 +54,6 @@ class HexPlane(nn.Module):
 
         spatial_feats = []
         temporal_feats = []
-        # NOTE: About the arrangement of temporal index
-        # NOTE: The dataset provides a t that maps 0 -> 1 to 0 -> 99 (0 correspondes to the first frame, 99 to the last frame)
-        # NOTE: Thus this mimics a sampling of align corners == True
         for data in self.spatial_embedding:
             # 3, 1, N, 2 -> 3, C, 1, N -> 3, C, N -> 3, N, C
             feat = F.grid_sample(data, spatial_coords[:, None], mode='bilinear', padding_mode='border',

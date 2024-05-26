@@ -22,7 +22,7 @@ task_arg:
 train_dataset:
     data_root: 'data/renbody/0013_01'
     split: 'train'
-    nearset_num: 4
+    nearset_N_views: 4
     input_ratio: 1.0
 
 
@@ -36,15 +36,24 @@ model_cfg:
     network_encoder:
         xyzt_encoder_cfg:
             type: 'hexplane'
-            n_levels: 4
+            n_levels: 1
             n_features_per_level: 32
         ibr_encoder_cfg:
             type: 'geo_ibr'
-            n_levels: 2
+            n_levels: 1
+    IBR_regressor:
+        type: 'geo_ibr'
+        sh_deg: 3
+        in_dim: 192
+        src_dim: 11
+        out_dim: 3
+        width: 64
+        depth: 1
     geo_linear:
         width: 64
         depth: 2
         out_dim: 2 # radius, density
+    K_points: 15
 
 
 
