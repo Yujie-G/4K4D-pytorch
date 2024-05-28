@@ -7,6 +7,9 @@ from tqdm import tqdm
 from lib.config import cfg
 from lib.utils.data_utils import normalize
 from lib.utils.ply_utils import read_ply
+from lib.utils.img_utils import save_tensor_image
+from lib.utils.base_utils import dotdict
+from lib.utils.vis_utils import *
 from lib.networks.encoding import get_encoder
 from lib.networks.r4K4D.IBR_regressor import ImageBasedSphericalHarmonics as IBR_SH
 from lib.networks.r4K4D.Geo_linear import GeoLinear
@@ -21,9 +24,10 @@ class Network(nn.Module):
         self.pcds = nn.ParameterList() # list of pcd
         self.init_pcds(model_cfg)
         self.xyzt_encoder, feature_dim = get_encoder(model_cfg.network_encoder.xyzt_encoder_cfg)
-        self.ibr_encoder = get_encoder(model_cfg.network_encoder.ibr_encoder_cfg)
-        self.ibr_regressor = IBR_SH()
+        self.ibr_encoder, _ = get_encoder(model_cfg.network_encoder.ibr_encoder_cfg)
+        self.ibr_regressor = IBR_SH(model_cfg.IBR_regressor)
         self.geo_linear = GeoLinear(feature_dim, model_cfg.geo_linear)
+        self.K_points = model_cfg.K_points
 
     def init_pcds(self, cfg):
         skip_loading_points = cfg.skip_loading_points
@@ -37,11 +41,54 @@ class Network(nn.Module):
                 pcd = read_ply(os.path.join(pcd_path, f'{f:06d}.ply'))
                 self.pcds.append(nn.Parameter(torch.as_tensor(pcd, device='cuda', dtype=torch.float32), requires_grad=True))
 
+    def prepare_opengl(self,
+                       module_attribute: str = 'cudagl',
+                       renderer_class=None,
+                       dtype: torch.dtype = torch.half,
+                       tex_dtype: torch.dtype = torch.half,
+                       H: int = 1024,
+                       W: int = 1024,
+                       size: int = 262144,
+                       ):
+        # Lazy initialization of EGL context
+        if 'eglctx' not in cfg and 'window' not in cfg:
+            # log(f'Init eglctx with h, w: {H}, {W}')
+            # from easyvolcap.utils.egl_utils import eglContextManager
+            # from easyvolcap.utils.gl_utils import common_opengl_options
+            # cfg.eglctx = eglContextManager(W, H)  # !: BATCH
+            self.eglctx = eglContextManager(W, H)
+            common_opengl_options()
 
 
-    def render_pcd(self, pcd, rgb, rad, density, batch):
-        # TODO: implement the differentiable depth peeling
-        return None, None, None
+        # Lazy initialization of cuda renderer and opengl buffers, this is only a placeholder
+        if not hasattr(self, module_attribute):
+            rand1 = torch.rand(size, 1, dtype=dtype)
+            rand3 = torch.rand(size, 3, dtype=dtype)
+            opengl = renderer_class(verts=rand3,  # !: BATCH
+                                    colors=rand3,
+                                    scalars=dotdict(radius=rand1, alpha=rand1),
+                                    pts_per_pix=self.K_points,
+                                    render_type=renderer_class.RenderType.POINTS,
+                                    dtype=dtype,
+                                    tex_dtype=tex_dtype,
+                                    H=H,
+                                    W=W)  # this will preallocate sizes
+            setattr(self, module_attribute, opengl)
+
+    def render_pcd(self, pcd, rgb_feat, rad, density, batch):
+        """
+            input: pcd, rgb_feat, rad, density, batch
+            return: rgb, acc, dpt
+        """
+        from lib.networks.r4K4D.renderer import Renderer
+        self.prepare_opengl('cudagl', Renderer, torch.float32, torch.float32,
+                            batch['meta']['H'],
+                            batch['meta']['W'], pcd.shape[1])
+        self.cudagl: Renderer
+        self.cudagl.pts_per_pix = self.K_points
+        self.cudagl.volume_rendering = True
+        rgb, acc, dpt = self.cudagl.forward(pcd, rgb_feat, rad, density, batch)
+        return rgb, acc, dpt
 
     def forward(self, batch):
         # index, time = batch['meta']['latent_index'], batch['time_step']
@@ -54,11 +101,12 @@ class Network(nn.Module):
 
         rad, density = self.geo_linear(xyzt_feat)  # B, N, 1
 
-        self.ibr_encoder(pcd, batch)  # update batch.output
-        direction = normalize(pcd.detach() - (-batch['R'].mT @ batch['T']).mT)  # B, N, 3
+        self.ibr_encoder(pcd, batch)  # update batch['output']
+        direction = normalize(pcd.detach() - (-batch['R'].transpose(-2, -1) @ batch['T']).transpose(-2, -1))  # B, N, 3
         rgb = self.ibr_regressor(torch.cat([xyzt_feat, direction], dim=-1), batch)  # B,  N, 3
-
         # Perform points rendering
-        rgb, acc, dpt = self.render_pcd(pcd, rgb, rad, density, batch)  # B, HW, C
+        rgb_map, acc, dpt = self.render_pcd(pcd, rgb, rad, density, batch)  # B, HW, C
 
-        return pcd, pcd_t, rgb, rad, density
+        save_tensor_image(rgb_map, 'rgb.png')
+        ret = {'rgb': rgb_map, 'acc': acc, 'dpt': dpt, 'mask': batch['mask']}
+        return ret
