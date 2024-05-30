@@ -1,8 +1,10 @@
 import torch
+import gc
 import torch.nn as nn
-
 from lib.config import cfg
 from lpips import LPIPS
+from torch.cuda.amp import autocast, GradScaler
+from lib.utils.img_utils import save_tensor_image
 
 class NetworkWrapper(nn.Module):
     def __init__(self, net, train_loader):
@@ -17,18 +19,27 @@ class NetworkWrapper(nn.Module):
 
     def forward(self, batch):
         output = self.net(batch)
+        save_tensor_image(output['rgb'].squeeze(0), 'output_rgb.png')
+        save_tensor_image(batch['rgb'].squeeze(0), 'gt_rgb.png')
 
         scalar_stats = {}
         loss = 0
         color_loss = self.color_crit(output['rgb'], batch['rgb'])
         scalar_stats.update({'color_mse': color_loss})
         loss += color_loss
-
-        lpips_loss = self.lpips(output['rgb'], batch['rgb'])
-        scalar_stats.update({'lpips': lpips_loss})
-        loss += self.perc_loss_weight * lpips_loss
-
-        msk_loss = self.color_crit(output['mask'], batch['mask'])
+        psnr = -10. * torch.log(color_loss.detach()) / \
+               torch.log(torch.Tensor([10.]).to(color_loss.device))
+        scalar_stats.update({'psnr': psnr})
+        # TODO: CUDA OUT OF MEMORY
+        # torch.cuda.empty_cache()
+        # gc.collect()
+        # with autocast():
+        #     lpips_loss = self.lpips(output['rgb'].permute(0, 3, 1, 2).float(), batch['rgb'].permute(0, 3, 1, 2).float())
+        # scalar_stats.update({'lpips': lpips_loss})
+        # loss += self.perc_loss_weight * lpips_loss
+        output_rgb_msk = output['rgb']*(output['mask'].unsqueeze(-1))
+        gt_rgb_msk = batch['rgb']*(batch['mask'].unsqueeze(-1))
+        msk_loss = self.color_crit(output_rgb_msk, gt_rgb_msk)
         scalar_stats.update({'msk_loss': msk_loss})
         loss += self.msk_loss_weight * msk_loss
 

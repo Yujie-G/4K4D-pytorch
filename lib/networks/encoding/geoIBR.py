@@ -104,7 +104,7 @@ class GeometryImageBasedEmbedder(nn.Module):
         # Actual sampling of the image features (along with rgb colors)
         # BS, C, 1, P -> B, S, C, P -> B, S, P, C
         src_feat_rgb = F.grid_sample(src_feat_rgb.view(-1, C, Hs, Ws), xy.view(-1, 1, P, 2),
-                        padding_mode=padding_mode).view(B, S, C, P).permute(0, 1, 3, 2)
+                        padding_mode=padding_mode,align_corners=False).view(B, S, C, P).permute(0, 1, 3, 2)
         return src_feat_rgb
 
     def forward(self, xyz: torch.Tensor, batch: dict):

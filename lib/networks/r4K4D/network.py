@@ -9,7 +9,6 @@ from lib.utils.data_utils import normalize
 from lib.utils.ply_utils import read_ply
 from lib.utils.img_utils import save_tensor_image
 from lib.utils.base_utils import dotdict
-from lib.utils.vis_utils import *
 from lib.networks.encoding import get_encoder
 from lib.networks.r4K4D.IBR_regressor import ImageBasedSphericalHarmonics as IBR_SH
 from lib.networks.r4K4D.Geo_linear import GeoLinear
@@ -53,9 +52,7 @@ class Network(nn.Module):
         # Lazy initialization of EGL context
         if 'eglctx' not in cfg and 'window' not in cfg:
             # log(f'Init eglctx with h, w: {H}, {W}')
-            # from easyvolcap.utils.egl_utils import eglContextManager
-            # from easyvolcap.utils.gl_utils import common_opengl_options
-            # cfg.eglctx = eglContextManager(W, H)  # !: BATCH
+            from lib.utils.egl_utils import eglContextManager, common_opengl_options
             self.eglctx = eglContextManager(W, H)
             common_opengl_options()
 
@@ -75,19 +72,25 @@ class Network(nn.Module):
                                     W=W)  # this will preallocate sizes
             setattr(self, module_attribute, opengl)
 
-    def render_pcd(self, pcd, rgb_feat, rad, density, batch):
+    def render_pcd(self, pcd, rgb_feat, rad, density, batch, use_opengl=False):
         """
             input: pcd, rgb_feat, rad, density, batch
             return: rgb, acc, dpt
         """
-        from lib.networks.r4K4D.renderer import Renderer
-        self.prepare_opengl('cudagl', Renderer, torch.float32, torch.float32,
-                            batch['meta']['H'],
-                            batch['meta']['W'], pcd.shape[1])
-        self.cudagl: Renderer
-        self.cudagl.pts_per_pix = self.K_points
-        self.cudagl.volume_rendering = True
-        rgb, acc, dpt = self.cudagl.forward(pcd, rgb_feat, rad, density, batch)
+        rgb, acc, dpt = None, None, None
+        if use_opengl:
+            from lib.networks.r4K4D.renderer import openglRenderer
+            self.prepare_opengl('cudagl', openglRenderer, torch.float32, torch.float32,
+                                batch['meta']['H'],
+                                batch['meta']['W'], pcd.shape[1])
+            self.cudagl: openglRenderer
+            self.cudagl.pts_per_pix = self.K_points
+            self.cudagl.volume_rendering = True
+            rgb, acc, dpt = self.cudagl.forward(pcd, rgb_feat, rad, density, batch)
+        else:
+            from lib.networks.r4K4D.renderer import torchRender
+            rgb, weight = torchRender(pcd, rgb_feat, rad, density, H=batch['meta']['H'], W=batch['meta']['W'], K=batch['K'], R=batch['R'], ray_o=batch['T'])
+            save_tensor_image(rgb.squeeze(0), 'rgb.png')
         return rgb, acc, dpt
 
     def forward(self, batch):
@@ -107,6 +110,6 @@ class Network(nn.Module):
         # Perform points rendering
         rgb_map, acc, dpt = self.render_pcd(pcd, rgb, rad, density, batch)  # B, HW, C
 
-        save_tensor_image(rgb_map, 'rgb.png')
         ret = {'rgb': rgb_map, 'acc': acc, 'dpt': dpt, 'mask': batch['mask']}
+        torch.cuda.empty_cache()
         return ret

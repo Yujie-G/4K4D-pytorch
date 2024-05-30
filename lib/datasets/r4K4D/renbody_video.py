@@ -1,10 +1,12 @@
 import os
 import numpy as np
 import imageio
+import torch
 import torch.utils.data as data
 
 from lib.config import cfg
 from lib.utils.camera.optimizable_cam import Camera
+from lib.utils.img_utils import save_numpy_image
 
 class Dataset(data.Dataset):
     def __init__(self, **kwargs):
@@ -35,7 +37,7 @@ class Dataset(data.Dataset):
                 if index > self.camera.use_frames - 2:
                     break
             img.append(np.stack(now_angle_images))
-        self.img = np.stack(img[:self.camera_len])
+        self.img = np.stack(img[:self.camera_len], dtype=np.float32)
 
     def __getitem__(self, index):
 
@@ -47,12 +49,12 @@ class Dataset(data.Dataset):
         bounds = np.concatenate([bounds, t_bounds], axis=1)
         # wbounds=wbounds.reshape(-1)
         origin_rgb = self.img[cam_index, time_step_index]
-        mask = self.camera.all_masks[cam_index, time_step_index, :, :] / 255
+        mask = self.camera.all_masks[cam_index, time_step_index, :, :]
 
-        mask_min_x, mask_max_x, mask_min_y, mask_max_y = \
-            np.where(mask > 0)[0].min(), np.where(mask > 0)[0].max(), np.where(mask > 0)[1].min(), np.where(mask > 0)[1].max()
+        mask_min_x, mask_max_x, mask_min_y, mask_max_y = 0, mask.shape[0], 0, mask.shape[1]
+            # np.where(mask > 0)[0].min(), np.where(mask > 0)[0].max(), np.where(mask > 0)[1].min(), np.where(mask > 0)[1].max()
 
-        uv_rgb = np.array([mask_min_x, mask_min_y])
+        # uv_rgb = np.array([mask_min_x, mask_min_y])
 
         rgb = origin_rgb * mask[..., np.newaxis]
         mask = mask[mask_min_x:mask_max_x, mask_min_y:mask_max_y]
@@ -66,12 +68,12 @@ class Dataset(data.Dataset):
         cam_p = cam_k @ cam.RT
         ret = {'rgb': rgb}
         ret.update({'mask': mask})
-        ret.update({'cam': cam, "time_step": time_step_index, "cam_index": cam_index, "bounds": bounds})
+        ret.update({"time_step": time_step_index, "cam_index": cam_index, "bounds": bounds})
         ret.update({"R": cam.R, "T": cam.T, "K": cam_k, "P": cam_p, "RT": cam.RT, "near": cam.n, "far": cam.f, "fov": cam.fov})
         ret.update({'meta': {'H': H, 'W': W}})
 
         # handle N nearest views for IBR part
-        N_nearest_cam_index, src_exts, KS = self.get_nearest_pose_cameras(cam_index)
+        N_nearest_cam_index, src_exts, _ = self.get_nearest_pose_cameras(cam_index)
         rgb_N_nearest = self.img[N_nearest_cam_index, time_step_index]
 
         # ret.update({"N_reference_images_index": N_nearest_cam_index})
@@ -82,11 +84,12 @@ class Dataset(data.Dataset):
         mask_allindex_lists = []
         rgb_N_nearest_list = []
         for index, mask in enumerate(masks):
+            mask = mask.squeeze()
             mask_real_index = N_nearest_cam_index[index]
             cam_k_temp = self.camera.get_camera(mask_real_index).K.copy()
             # cam_k_temp=cam.K.copy()
-            mask_min_x, mask_max_x, mask_min_y, mask_max_y = \
-                np.where(mask > 0.9)[1].min(), np.where(mask > 0.9)[1].max(), np.where(mask > 0.5)[2].min(), np.where(mask > 0.5)[2].max()
+            mask_min_x, mask_max_x, mask_min_y, mask_max_y = 0, mask.shape[0], 0, mask.shape[1]
+                # np.where(mask > 0.9)[1].min(), np.where(mask > 0.9)[1].max(), np.where(mask > 0.5)[2].min(), np.where(mask > 0.5)[2].max()
             rgb_N_nearest_list.append(rgb_N_nearest[index, mask_min_x:mask_max_x, mask_min_y:mask_max_y, :])
 
             cam_k_temp[0, 2] -= mask_min_y
@@ -97,36 +100,22 @@ class Dataset(data.Dataset):
             cam_k_all.append(cam_k_temp)
             max_len_x = max(max_len_x, mask_max_x - mask_min_x)
             max_len_y = max(max_len_y, mask_max_y - mask_min_y)
-        # max_len_x=math.ceil(max_len_x/8)*8
-        # max_len_y=math.ceil(max_len_y/8)*8
         scale_list = []
         for i, mask_for in enumerate(mask_allindex_lists):
             mask_min_x, mask_max_x, mask_min_y, mask_max_y = mask_for
             scale_list.append(np.array([max_len_x / H, max_len_y / W]))
-            # len_pad_x=max(max_len_x-(mask_max_x-mask_min_x),0)
-            # len_pad_y=max(max_len_y-(mask_max_y-mask_min_y),0)
-            # cam_k_all[i][0,2]-=80
-            # cam_k_all[i][1,2]-=80
         scale_list = np.stack(scale_list)
         src_ixts = np.stack(cam_k_all)
-        # TODO 这里可能是错误的
-        # K_for_reference=cam.K.copy()
 
-        # K_for_reference[:,0,:]=K_for_reference[:,0,:]*max_len_x/self.H
-        # K_for_reference[:,1,:]=K_for_reference[:,1,:]*max_len_y/self.W
         src_inps = []
         for rgb in rgb_N_nearest_list:
             pad_dims = [(0, max_size - img_size) for img_size, max_size in zip(rgb.shape, (max_len_x, max_len_y, 3))]
-            src_inps.append(np.pad(rgb, pad_dims, mode='constant'))
+            rgb_pad = np.pad(rgb, pad_dims, mode='constant')
+            src_inps.append(rgb_pad)
         src_inps = np.stack(src_inps)
-        # K_for_reference=K_for_reference[np.newaxis,...]
-        projections = src_ixts @ src_exts
         ret['meta'].update({"src_inps": src_inps})
         ret.update({"src_exts": src_exts, "src_ixts": src_ixts})
-        ret.update({"projections": projections})
-        ret.update({"uv_rgb": uv_rgb})
         ret.update({"scale": scale_list})
-
         return ret
 
     def get_nearest_pose_cameras(self, now_index):

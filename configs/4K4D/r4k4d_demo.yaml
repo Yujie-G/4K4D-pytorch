@@ -7,17 +7,14 @@ scene: 'renbody'
 train_dataset_module: lib.datasets.r4K4D.renbody_video
 test_dataset_module: lib.datasets.r4K4D.renbody_video
 network_module: lib.networks.r4K4D.network
+evaluator_module: lib.evaluators.r4K4D
 loss_module: lib.train.losses.r4K4D_reg
-
-# TODO: add evaluator
-#evaluator_module: lib.evaluators.r4K4D
 
 # TODO[future]: add visualizer
 #visualizer_module: lib.visualizers.r4K4D
 task_arg:
     dim_time : 1
     camera_use: 48
-
 
 train_dataset:
     data_root: 'data/renbody/0013_01'
@@ -55,9 +52,16 @@ model_cfg:
         out_dim: 2 # radius, density
     K_points: 15
 
+train:
+    lr: 5e-3
+    num_workers: 1
+    batch_size: 1
+    lmbda1: 0.1
+    lmbda2: 0.1
 
 
 
 ep_iter: 50
 eval_ep: 10
 save_latest_ep: 1
+log_interval: 100
