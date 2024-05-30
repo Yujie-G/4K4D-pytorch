@@ -15,7 +15,7 @@ class NetworkWrapper(nn.Module):
 
         self.perc_loss_weight = cfg.train.lmbda1
         self.msk_loss_weight = cfg.train.lmbda2
-        self.lpips = LPIPS(net='vgg')
+        # self.lpips = LPIPS(net='vgg')
 
     def forward(self, batch):
         output = self.net(batch)
@@ -30,7 +30,7 @@ class NetworkWrapper(nn.Module):
         psnr = -10. * torch.log(color_loss.detach()) / \
                torch.log(torch.Tensor([10.]).to(color_loss.device))
         scalar_stats.update({'psnr': psnr})
-        # TODO: CUDA OUT OF MEMORY
+        # # UNDONE: CUDA OUT OF MEMORY.
         # torch.cuda.empty_cache()
         # gc.collect()
         # with autocast():

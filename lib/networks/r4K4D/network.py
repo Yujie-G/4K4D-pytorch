@@ -89,7 +89,7 @@ class Network(nn.Module):
             rgb, acc, dpt = self.cudagl.forward(pcd, rgb_feat, rad, density, batch)
         else:
             from lib.networks.r4K4D.renderer import torchRender
-            rgb, acc, dpt = torchRender(pcd, rgb_feat, rad, density, H=batch['meta']['H'], W=batch['meta']['W'], K=batch['K'], R=batch['R'], T=batch['T'])
+            rgb, acc, dpt = torchRender(pcd, rgb_feat, rad, density, H=batch['meta']['H'], W=batch['meta']['W'], K=batch['K'], R=batch['R'], T=batch['T'], K_points=self.K_points)
         return rgb, acc, dpt
 
     def forward(self, batch):
@@ -98,12 +98,6 @@ class Network(nn.Module):
         time = batch['time_step']
         pcd = self.pcds[time].unsqueeze(0)   # B, N, 3
         pcd_t = time.view(1, 1).expand(1, pcd.shape[1], 1)  # B, N, 1
-
-        # (3,4) @ (4, N) = (3, N)
-        coord_ss = batch['P'].squeeze(0) @ torch.cat([pcd, torch.ones_like(pcd_t)], dim=-1).transpose(-2, -1).squeeze(0)  # (3, N)
-        coord_ss = coord_ss / coord_ss[2:3, :]  # (3, N)
-        x_min, x_max = coord_ss[0].min(), coord_ss[0].max()
-        y_min, y_max = coord_ss[1].min(), coord_ss[1].max()
 
         xyzt_feat = self.xyzt_encoder(pcd, pcd_t, batch)  # same time
 
