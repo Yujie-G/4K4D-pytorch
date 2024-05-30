@@ -1,14 +1,16 @@
 import os.path
-
 import torch
 import ctypes
-
 import OpenGL.GL as gl
 from OpenGL.GL import shaders
 from enum import Enum
 import glfw
 import glm
 from glm import vec2, vec3, vec4, mat3, mat4, mat4x3, mat2x3  # This is actually highly optimized
+import nerfacc
+from pytorch3d.structures import Pointclouds
+from pytorch3d.renderer import PerspectiveCameras, PointsRasterizer, AlphaCompositor
+from pytorch3d.renderer.points.rasterizer import rasterize_points
 
 from lib.utils.base_utils import *
 from lib.utils.vis_utils import *
@@ -935,10 +937,7 @@ class openglRenderer(Splat):
         gl.glScissor(0, 0, old_W, old_H)
         return rgb_map, acc_map, dpt_map
 
-import nerfacc
-from pytorch3d.structures import Pointclouds
-from pytorch3d.renderer import PerspectiveCameras, PointsRasterizer, AlphaCompositor
-from pytorch3d.renderer.points.rasterizer import rasterize_points
+
 def get_pytorch3d_ndc_K(K: torch.Tensor, H: int, W: int):
     M = min(H, W)
     K = torch.cat([K, torch.zeros_like(K[..., -1:, :])], dim=-2)
@@ -951,7 +950,6 @@ def get_pytorch3d_ndc_K(K: torch.Tensor, H: int, W: int):
     K[..., 1, 0] = 0
     K[..., 2, 0] = 0
     K[..., 2, 1] = 0
-    # return K
 
     K[..., 0, 0] = K[..., 0, 0] * 2.0 / M  # fx
     K[..., 1, 1] = K[..., 1, 1] * 2.0 / M  # fy
@@ -959,7 +957,7 @@ def get_pytorch3d_ndc_K(K: torch.Tensor, H: int, W: int):
     K[..., 1, 2] = -(K[..., 1, 2] - H / 2.0) * 2.0 / M  # py
     return K
 
-def get_pytorch3d_camera_params(R,T,K,H,W):
+def get_pytorch3d_camera_params(H, W, K, R, T):
     # Extract pytorc3d camera parameters from batch input
     # R and T are applied on the right (requires a transposed R from OpenCV camera format)
     # Coordinate system is different from that of OpenCV (cv: right down front, 3d: left up front)
@@ -971,114 +969,55 @@ def get_pytorch3d_camera_params(R,T,K,H,W):
     T = (-R @ C)[..., 0]  # c2w back to w2c
     R = R.mT  # applied left (left multiply to right multiply, god knows why...)
 
-    H = H.item()  # !: BATCH
-    W = W.item()  # !: BATCH
+
     K = get_pytorch3d_ndc_K(K, H, W)
 
     return H, W, K, R, T, C
 
-def get_ndc_for_uv(pcd,K,R,T,H,W):
-    pcd=pcd.float()
-    # H[0]=609
-    # W[0]=251
-    H, W, K, R, T, C=get_pytorch3d_camera_params(R,T,K,H,W)
-    K=K.float()
-    R=R.float()
-    T=T.float()
-    rasterizer=PointsRasterizer()
-    # for i in range(K.shape[0]):
-        # K_temp=K[i,...].unsqueeze(0)
-        # R_temp=R[i,...].unsqueeze(0)
-        # T_temp=T[i,...].unsqueeze(0)
-        # pcd_temp=pcd.reshape(1,-1,3)
-    pcd=pcd.repeat(K.shape[0],1,1)
-    ndc_pcd = rasterizer.transform(Pointclouds(pcd), cameras=PerspectiveCameras(K=K, R=R, T=T, device=pcd.device)).points_padded()
-    ndc_uv=ndc_pcd[...,:-1]
-    ndc_uv=ndc_uv.clip(min=-1,max=1)
-    return ndc_uv
-def get_ndc(pcd,K,R,T,H,W,rad):
-    pcd=pcd.float()
-    # H[0]=609
-    # W[0]=251
-    H, W, K, R, T, C=get_pytorch3d_camera_params(R,T,K,H,W)
-    K=K.float()
-    R=R.float()
-    T=T.float()
-    rasterizer=PointsRasterizer()
-    ndc_pcd = rasterizer.transform(Pointclouds(pcd), cameras=PerspectiveCameras(K=K, R=R, T=T, device=pcd.device)).points_padded()
-    ndc_rad = abs(K[..., 1, 1][..., None] * rad[..., 0] / (ndc_pcd[..., -1] + 1e-10))
-    return ndc_pcd,ndc_rad
-
-
-import torch
-
-
-def get_weights(alphas, ray_indices, H, W):
-    alphas = alphas.reshape(-1)
-    ray_indices = ray_indices.reshape(-1)
-    n_rays = H * W
-
-    weights = torch.zeros_like(alphas)
-    transmittance = torch.ones(n_rays, dtype=alphas.dtype, device=alphas.device)
-
-    # 按照 ray_indices 排序 alphas
-    sorted_indices = torch.argsort(ray_indices)
-    sorted_alphas = alphas[sorted_indices]
-    sorted_ray_indices = ray_indices[sorted_indices]
-
-    # 计算 transmittance
-    unique_ray_indices, counts = torch.unique(sorted_ray_indices, return_counts=True)
-    transmittance_cumsum = torch.ones_like(sorted_alphas)
-    transmittance_cumsum[1:] = torch.cumprod(1 - sorted_alphas[:-1], dim=0)
-
-    transmittance = torch.ones_like(alphas)
-    transmittance[sorted_indices] = transmittance_cumsum
-
-    # 计算 weights
-    weights = sorted_alphas * transmittance
-
-    return weights
-
-
-def torchRender(xyz, rgb, radius, sigmas, H, W, K, R, ray_o, K_points = 15):
+def torchRender(xyz, rgb, rad, density, H, W, K, R, T, K_points = 8):
     # rgb_compose=torch.ones_like(rgb_compose,device=rgb_compose.device,dtype=rgb_compose.dtype)
-    sigmas = sigmas.squeeze()
-    radius = radius.squeeze()
+    density = density.squeeze()
+    rad = rad.squeeze()
     H_d, W_d = H.item(), W.item()
 
-    ndc_corrd, ndc_radius = get_ndc(xyz, K, R, ray_o, H, W, radius)
+    # ndc_corrd, ndc_radius = get_ndc(xyz, K, R, T, H, W, radius)
+    H, W, K, R, T, C = get_pytorch3d_camera_params(H_d, W_d, K, R, T)
+    # K, R, T, C = to_x([K, R, T, C], torch.float)
+    ndc_pcd = PointsRasterizer().transform(Pointclouds(xyz), cameras=PerspectiveCameras(K=K, R=R, T=T, device=xyz.device)).points_padded()  # B, N, 3
+    ndc_rad = abs(K[..., 1, 1][..., None] * rad[..., 0] / (ndc_pcd[..., -1] + 1e-10))  # z: B, 1 * B, N, world space radius
 
-    ndc_radius = ndc_radius.float()
-    ndc_radius = ndc_radius.reshape(-1)
+    ndc_rad = ndc_rad.float()
+    ndc_rad = ndc_rad.reshape(-1)
 
-    ndc_corrd = ndc_corrd.unsqueeze(0).float()
-    ndc_corrd = ndc_corrd.reshape(1, -1, 3)
-    ndc_radius_c = ndc_radius.float().clone()
+    ndc_pcd = ndc_pcd.unsqueeze(0).float()
+    ndc_pcd = ndc_pcd.reshape(1, -1, 3)
 
-    pcd_real = Pointclouds(ndc_corrd)
+    ndc_radius_c = ndc_rad.float().clone()
 
-    idx, depth, dists = rasterize_points(pcd_real, (H_d, W_d), radius=ndc_radius_c, points_per_pixel=K_points, max_points_per_bin = 300000)
+    idx, zbuf, dists = rasterize_points(Pointclouds(ndc_pcd, rgb), (H_d, W_d), radius=ndc_radius_c, points_per_pixel=K_points, max_points_per_bin = 300000)
 
-    useful_index = idx > -1
-    now_idx = idx[useful_index].reshape(-1)
-    dists_c = dists[useful_index].clip(min=0).reshape(-1)
+    msk = idx != -1
+    idx = torch.where(msk, idx, 0).long()
 
-    idx_c = now_idx.clone()
+    # Prepare controller for composition
+    pix_rad = ndc_rad[idx]  # B, H, W, K (B, HWK -> B, N -> B, H, W, K)
+    pix_dens = density[idx]
+    pix_dens = pix_dens * (1 - dists / (pix_rad * pix_rad))  # B, H, W, K
+    pix_dens = pix_dens.clip(0, 1)
+    pix_dens = torch.where(msk, pix_dens, 0)
 
-    ray_indices = torch.arange(H_d * W_d, device=ndc_corrd.device).reshape(-1, H_d, W_d, 1).repeat(1, 1, 1,K_points)
-    ray_indices = ray_indices[useful_index].reshape(-1)
-    sigmas_each_pixel = sigmas[idx_c]
-    radius_each_pixel = ndc_radius[idx_c]
-    pcd_real_sigma = sigmas_each_pixel * (1 - dists_c / (radius_each_pixel * radius_each_pixel))
+    # Prepare values for composition
+    dpt = (xyz - C.mT).norm(dim=-1, keepdim=True)
+    rgb = torch.cat([rgb, density.reshape(1,-1, 1), dpt], dim=-1)  # B, N, 3 + C
 
-    pcd_real_sigma_clip = pcd_real_sigma.clip(min=0)
-    # print(torch.max(pcd_real_sigma),torch.min(pcd_real_sigma))
-    rgbs_each_pixel = rgb.reshape(-1, 3)[idx_c]
+    # The actual computation
+    compositor = AlphaCompositor()
+    rgb = compositor(idx.permute(0, 3, 1, 2),
+                          pix_dens.permute(0, 3, 1, 2),
+                          # NOTE: This will pass gradient back to point position and radius
+                          rgb.view(-1, rgb.shape[-1]).permute(1, 0)).permute(0, 2, 3, 1)  # B, H, W, 3
 
-    weights = get_weights(pcd_real_sigma_clip, ray_indices, H_d, W_d)
+    rgb, acc, dpt = rgb[..., :-2], rgb[..., -2:-1], rgb[..., -1:]
+    dpt = dpt + (1 - acc) * dpt.max()  # only for the looks (rendered depth are already premultiplied)
 
-    rgb_final = nerfacc.accumulate_along_rays(weights, rgbs_each_pixel, ray_indices, H_d * W_d)
-    weights_final = nerfacc.accumulate_along_rays(weights, None, ray_indices, H_d * W_d)
-    rgb_final = rgb_final.view(1, H, W, 3)
-    weights_final = weights_final.view(1, H, W, 1)
-    return rgb_final, weights_final
+    return rgb, acc, dpt

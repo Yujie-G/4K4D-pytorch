@@ -32,7 +32,7 @@ class Dataset(data.Dataset):
             image_files.sort()
             now_angle_images = []
             for index, image_file in enumerate(image_files):
-                image = imageio.imread(os.path.join(image_path, angle, image_file)) / 255
+                image = imageio.imread(os.path.join(image_path, angle, image_file))/255
                 now_angle_images.append(image)
                 if index > self.camera.use_frames - 2:
                     break
@@ -49,7 +49,7 @@ class Dataset(data.Dataset):
         bounds = np.concatenate([bounds, t_bounds], axis=1)
         # wbounds=wbounds.reshape(-1)
         origin_rgb = self.img[cam_index, time_step_index]
-        mask = self.camera.all_masks[cam_index, time_step_index, :, :]
+        mask = self.camera.all_masks[cam_index, time_step_index, :, :] / 255.0
 
         mask_min_x, mask_max_x, mask_min_y, mask_max_y = 0, mask.shape[0], 0, mask.shape[1]
             # np.where(mask > 0)[0].min(), np.where(mask > 0)[0].max(), np.where(mask > 0)[1].min(), np.where(mask > 0)[1].max()

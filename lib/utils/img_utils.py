@@ -9,22 +9,22 @@ from typing import List
 from lib.utils import data_config
 from PIL import Image
 
+def save_numpy_image(image_np, file_path):
+    # reshape to H, W, C
+
+    # normalize to 0~255
+    image_np = (image_np - image_np.min()) / (image_np.max() - image_np.min()) * 255
+    # Convert the numpy array to a PIL Image
+    image_pil = Image.fromarray(np.uint8(image_np))
+
+    # Save the PIL Image to the specified file path
+    image_pil.save(file_path)
+
 def save_tensor_image(image_tensor, file_path):
     # Convert the tensor to a numpy array
     image_np = image_tensor.detach().cpu().numpy()
 
-    # Convert the numpy array to a PIL Image
-    image_pil = Image.fromarray(np.uint8(image_np))
-
-    # Save the PIL Image to the specified file path
-    image_pil.save(file_path)
-
-def save_numpy_image(image_np, file_path):
-    # Convert the numpy array to a PIL Image
-    image_pil = Image.fromarray(np.uint8(image_np))
-
-    # Save the PIL Image to the specified file path
-    image_pil.save(file_path)
+    save_numpy_image(image_np, file_path)
 
 def unnormalize_img(img, mean, std):
     """

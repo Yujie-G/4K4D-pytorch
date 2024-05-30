@@ -19,8 +19,8 @@ class NetworkWrapper(nn.Module):
 
     def forward(self, batch):
         output = self.net(batch)
-        save_tensor_image(output['rgb'].squeeze(0), 'output_rgb.png')
-        save_tensor_image(batch['rgb'].squeeze(0), 'gt_rgb.png')
+        # save_tensor_image(output['rgb'].squeeze(0)*255, 'output_rgb.png')
+        # save_tensor_image(batch['rgb'].squeeze(0)*255, 'gt_rgb.png')
 
         scalar_stats = {}
         loss = 0

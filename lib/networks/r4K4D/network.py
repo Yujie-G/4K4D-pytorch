@@ -89,8 +89,7 @@ class Network(nn.Module):
             rgb, acc, dpt = self.cudagl.forward(pcd, rgb_feat, rad, density, batch)
         else:
             from lib.networks.r4K4D.renderer import torchRender
-            rgb, weight = torchRender(pcd, rgb_feat, rad, density, H=batch['meta']['H'], W=batch['meta']['W'], K=batch['K'], R=batch['R'], ray_o=batch['T'])
-            save_tensor_image(rgb.squeeze(0), 'rgb.png')
+            rgb, acc, dpt = torchRender(pcd, rgb_feat, rad, density, H=batch['meta']['H'], W=batch['meta']['W'], K=batch['K'], R=batch['R'], T=batch['T'])
         return rgb, acc, dpt
 
     def forward(self, batch):
@@ -100,16 +99,28 @@ class Network(nn.Module):
         pcd = self.pcds[time].unsqueeze(0)   # B, N, 3
         pcd_t = time.view(1, 1).expand(1, pcd.shape[1], 1)  # B, N, 1
 
+        # (3,4) @ (4, N) = (3, N)
+        coord_ss = batch['P'].squeeze(0) @ torch.cat([pcd, torch.ones_like(pcd_t)], dim=-1).transpose(-2, -1).squeeze(0)  # (3, N)
+        coord_ss = coord_ss / coord_ss[2:3, :]  # (3, N)
+        x_min, x_max = coord_ss[0].min(), coord_ss[0].max()
+        y_min, y_max = coord_ss[1].min(), coord_ss[1].max()
+
         xyzt_feat = self.xyzt_encoder(pcd, pcd_t, batch)  # same time
 
         rad, density = self.geo_linear(xyzt_feat)  # B, N, 1
 
         self.ibr_encoder(pcd, batch)  # update batch['output']
         direction = normalize(pcd.detach() - (-batch['R'].transpose(-2, -1) @ batch['T']).transpose(-2, -1))  # B, N, 3
-        rgb = self.ibr_regressor(torch.cat([xyzt_feat, direction], dim=-1), batch)  # B,  N, 3
+        rgb = self.ibr_regressor(torch.cat([xyzt_feat, direction], dim=-1), batch)  # B, N, 3
+
+        # # DEBUG:
+        # rgb = torch.ones(rgb.shape, device=rgb.device)  # B, N, 3
+        # rad = 0.005 * torch.ones(rad.shape, device=rad.device)
+        # density = torch.ones(density.shape, device=density.device)
+
+
         # Perform points rendering
         rgb_map, acc, dpt = self.render_pcd(pcd, rgb, rad, density, batch)  # B, HW, C
 
         ret = {'rgb': rgb_map, 'acc': acc, 'dpt': dpt, 'mask': batch['mask']}
-        torch.cuda.empty_cache()
         return ret
