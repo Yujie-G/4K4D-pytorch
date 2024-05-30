@@ -784,7 +784,7 @@ class Splat(Mesh):  # FIXME: Not rendering, need to debug this
         self.read_color, self.read_upper, self.read_lower, self.read_attach, self.read_fbo = hardware_rendering_framebuffer(self.max_H, self.max_W, self.gl_tex_dtype)
         # log(f'Created texture of h, w: {self.max_H}, {self.max_W}')
 
-class Renderer(Splat):
+class openglRenderer(Splat):
     def __init__(self,
                  dtype=torch.half,
                  **kwargs,
@@ -934,3 +934,151 @@ class Renderer(Splat):
         gl.glViewport(0, 0, old_W, old_H)
         gl.glScissor(0, 0, old_W, old_H)
         return rgb_map, acc_map, dpt_map
+
+import nerfacc
+from pytorch3d.structures import Pointclouds
+from pytorch3d.renderer import PerspectiveCameras, PointsRasterizer, AlphaCompositor
+from pytorch3d.renderer.points.rasterizer import rasterize_points
+def get_pytorch3d_ndc_K(K: torch.Tensor, H: int, W: int):
+    M = min(H, W)
+    K = torch.cat([K, torch.zeros_like(K[..., -1:, :])], dim=-2)
+    K = torch.cat([K, torch.zeros_like(K[..., :, -1:])], dim=-1)
+    K[..., 3, 2] = 1  # ...? # HACK: pytorch3d magic
+    K[..., 2, 2] = 0  # ...? # HACK: pytorch3d magic
+    K[..., 2, 3] = 1  # ...? # HACK: pytorch3d magic
+
+    K[..., 0, 1] = 0
+    K[..., 1, 0] = 0
+    K[..., 2, 0] = 0
+    K[..., 2, 1] = 0
+    # return K
+
+    K[..., 0, 0] = K[..., 0, 0] * 2.0 / M  # fx
+    K[..., 1, 1] = K[..., 1, 1] * 2.0 / M  # fy
+    K[..., 0, 2] = -(K[..., 0, 2] - W / 2.0) * 2.0 / M  # px
+    K[..., 1, 2] = -(K[..., 1, 2] - H / 2.0) * 2.0 / M  # py
+    return K
+
+def get_pytorch3d_camera_params(R,T,K,H,W):
+    # Extract pytorc3d camera parameters from batch input
+    # R and T are applied on the right (requires a transposed R from OpenCV camera format)
+    # Coordinate system is different from that of OpenCV (cv: right down front, 3d: left up front)
+    # However, the correction has to be down on both T and R... (instead of just R)
+    C = -R.mT @ T  # B, 3, 1
+    R = R.clone()
+    R[..., 0, :] *= -1  # flip x row
+    R[..., 1, :] *= -1  # flip y row
+    T = (-R @ C)[..., 0]  # c2w back to w2c
+    R = R.mT  # applied left (left multiply to right multiply, god knows why...)
+
+    H = H.item()  # !: BATCH
+    W = W.item()  # !: BATCH
+    K = get_pytorch3d_ndc_K(K, H, W)
+
+    return H, W, K, R, T, C
+
+def get_ndc_for_uv(pcd,K,R,T,H,W):
+    pcd=pcd.float()
+    # H[0]=609
+    # W[0]=251
+    H, W, K, R, T, C=get_pytorch3d_camera_params(R,T,K,H,W)
+    K=K.float()
+    R=R.float()
+    T=T.float()
+    rasterizer=PointsRasterizer()
+    # for i in range(K.shape[0]):
+        # K_temp=K[i,...].unsqueeze(0)
+        # R_temp=R[i,...].unsqueeze(0)
+        # T_temp=T[i,...].unsqueeze(0)
+        # pcd_temp=pcd.reshape(1,-1,3)
+    pcd=pcd.repeat(K.shape[0],1,1)
+    ndc_pcd = rasterizer.transform(Pointclouds(pcd), cameras=PerspectiveCameras(K=K, R=R, T=T, device=pcd.device)).points_padded()
+    ndc_uv=ndc_pcd[...,:-1]
+    ndc_uv=ndc_uv.clip(min=-1,max=1)
+    return ndc_uv
+def get_ndc(pcd,K,R,T,H,W,rad):
+    pcd=pcd.float()
+    # H[0]=609
+    # W[0]=251
+    H, W, K, R, T, C=get_pytorch3d_camera_params(R,T,K,H,W)
+    K=K.float()
+    R=R.float()
+    T=T.float()
+    rasterizer=PointsRasterizer()
+    ndc_pcd = rasterizer.transform(Pointclouds(pcd), cameras=PerspectiveCameras(K=K, R=R, T=T, device=pcd.device)).points_padded()
+    ndc_rad = abs(K[..., 1, 1][..., None] * rad[..., 0] / (ndc_pcd[..., -1] + 1e-10))
+    return ndc_pcd,ndc_rad
+
+
+import torch
+
+
+def get_weights(alphas, ray_indices, H, W):
+    alphas = alphas.reshape(-1)
+    ray_indices = ray_indices.reshape(-1)
+    n_rays = H * W
+
+    weights = torch.zeros_like(alphas)
+    transmittance = torch.ones(n_rays, dtype=alphas.dtype, device=alphas.device)
+
+    # 按照 ray_indices 排序 alphas
+    sorted_indices = torch.argsort(ray_indices)
+    sorted_alphas = alphas[sorted_indices]
+    sorted_ray_indices = ray_indices[sorted_indices]
+
+    # 计算 transmittance
+    unique_ray_indices, counts = torch.unique(sorted_ray_indices, return_counts=True)
+    transmittance_cumsum = torch.ones_like(sorted_alphas)
+    transmittance_cumsum[1:] = torch.cumprod(1 - sorted_alphas[:-1], dim=0)
+
+    transmittance = torch.ones_like(alphas)
+    transmittance[sorted_indices] = transmittance_cumsum
+
+    # 计算 weights
+    weights = sorted_alphas * transmittance
+
+    return weights
+
+
+def torchRender(xyz, rgb, radius, sigmas, H, W, K, R, ray_o, K_points = 15):
+    # rgb_compose=torch.ones_like(rgb_compose,device=rgb_compose.device,dtype=rgb_compose.dtype)
+    sigmas = sigmas.squeeze()
+    radius = radius.squeeze()
+    H_d, W_d = H.item(), W.item()
+
+    ndc_corrd, ndc_radius = get_ndc(xyz, K, R, ray_o, H, W, radius)
+
+    ndc_radius = ndc_radius.float()
+    ndc_radius = ndc_radius.reshape(-1)
+
+    ndc_corrd = ndc_corrd.unsqueeze(0).float()
+    ndc_corrd = ndc_corrd.reshape(1, -1, 3)
+    ndc_radius_c = ndc_radius.float().clone()
+
+    pcd_real = Pointclouds(ndc_corrd)
+
+    idx, depth, dists = rasterize_points(pcd_real, (H_d, W_d), radius=ndc_radius_c, points_per_pixel=K_points, max_points_per_bin = 300000)
+
+    useful_index = idx > -1
+    now_idx = idx[useful_index].reshape(-1)
+    dists_c = dists[useful_index].clip(min=0).reshape(-1)
+
+    idx_c = now_idx.clone()
+
+    ray_indices = torch.arange(H_d * W_d, device=ndc_corrd.device).reshape(-1, H_d, W_d, 1).repeat(1, 1, 1,K_points)
+    ray_indices = ray_indices[useful_index].reshape(-1)
+    sigmas_each_pixel = sigmas[idx_c]
+    radius_each_pixel = ndc_radius[idx_c]
+    pcd_real_sigma = sigmas_each_pixel * (1 - dists_c / (radius_each_pixel * radius_each_pixel))
+
+    pcd_real_sigma_clip = pcd_real_sigma.clip(min=0)
+    # print(torch.max(pcd_real_sigma),torch.min(pcd_real_sigma))
+    rgbs_each_pixel = rgb.reshape(-1, 3)[idx_c]
+
+    weights = get_weights(pcd_real_sigma_clip, ray_indices, H_d, W_d)
+
+    rgb_final = nerfacc.accumulate_along_rays(weights, rgbs_each_pixel, ray_indices, H_d * W_d)
+    weights_final = nerfacc.accumulate_along_rays(weights, None, ray_indices, H_d * W_d)
+    rgb_final = rgb_final.view(1, H, W, 3)
+    weights_final = weights_final.view(1, H, W, 1)
+    return rgb_final, weights_final

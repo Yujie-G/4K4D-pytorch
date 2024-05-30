@@ -142,8 +142,8 @@ def parse_cfg(cfg, args):
 
     if len(cfg.exp_name_tag) != 0:
         cfg.exp_name +=  ('_' + cfg.exp_name_tag)
-    cfg.exp_name = cfg.exp_name.replace('gitbranch', os.popen('git describe --all').readline().strip()[6:])
-    cfg.exp_name = cfg.exp_name.replace('gitcommit', os.popen('git describe --tags --always').readline().strip())
+    # cfg.exp_name = cfg.exp_name.replace('gitbranch', os.popen('git describe --all').readline().strip()[6:])
+    # cfg.exp_name = cfg.exp_name.replace('gitcommit', os.popen('git describe --tags --always').readline().strip())
     print('EXP NAME: ', cfg.exp_name)
     cfg.trained_model_dir = os.path.join(cfg.trained_model_dir, cfg.task, cfg.scene, cfg.exp_name)
     cfg.record_dir = os.path.join(cfg.record_dir, cfg.task, cfg.scene, cfg.exp_name)
