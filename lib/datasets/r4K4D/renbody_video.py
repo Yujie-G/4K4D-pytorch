@@ -14,6 +14,7 @@ class Dataset(data.Dataset):
         super(Dataset, self).__init__()
         self.data_root, self.split = kwargs['data_root'], kwargs['split']
         self.nearset_N_views = cfg.train_dataset['nearset_N_views']
+        self.input_ratio = cfg.train_dataset['input_ratio']
         camera_matrix_optimized_path = os.path.join(self.data_root, 'optimized')
         camera_intri_path = os.path.join(camera_matrix_optimized_path, "intri.yml")
         camera_extri_path = os.path.join(camera_matrix_optimized_path, "extri.yml")
@@ -23,9 +24,10 @@ class Dataset(data.Dataset):
         else:
             self.camera_len = cfg.test_dataset.camera_use
             self.time_step_len = cfg.test_dataset.dim_time
-        self.camera = Camera(camera_intri_path, camera_extri_path, self.camera_len, self.time_step_len, self.data_root)
+        self.camera = Camera(camera_intri_path, camera_extri_path,
+                             camera_num=self.camera_len, frames_num=self.time_step_len,
+                             ratio=self.input_ratio, data_root=self.data_root)
 
-        self.input_ratio = cfg.train_dataset['input_ratio']
 
         self.imgs = self.camera.imgs
         print(f"{self.split} dataset init done")

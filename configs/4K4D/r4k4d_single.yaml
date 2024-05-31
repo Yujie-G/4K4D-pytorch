@@ -47,6 +47,7 @@ model_cfg:
             n_levels: 1
     IBR_regressor:
         type: 'geo_ibr'
+        lr: 0.0005
         sh_deg: 3
         in_dim: 48
         src_dim: 11
@@ -54,13 +55,14 @@ model_cfg:
         width: 64
         depth: 1
     geo_linear:
+        lr: 0.0005
         width: 64
         depth: 2
         out_dim: 2 # radius, density
     K_points: 15
 
 train:
-    lr: 5e-4
+    lr: 5e-3
     weight_decay: 0.01
     num_workers: 1
     batch_size: 1

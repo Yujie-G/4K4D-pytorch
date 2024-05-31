@@ -1,20 +1,45 @@
 import torch
 import cv2
 import os
+from typing import NamedTuple
 import imageio.v2 as imageio
 import numpy as np
 from tqdm import tqdm
 
-from lib.utils.camera.r4k4d_cam_param import CamParams
 from lib.utils.ply_utils import *
 
+
+class CamParams(NamedTuple):
+    R: np.array
+    T: np.array
+    K: np.array
+    invK: np.array
+    H: int
+    W: int
+    C: np.array
+    RT: np.array
+    Rvec: np.array
+    P: np.array
+    # D: np.array
+    # t: float
+    # v: float
+    n: float
+    f: float
+    bounds: np.array
+    # ccm: np.array
+    fov: np.array
+    c2w: np.array
+    center: np.array
+
+
 class Camera:
-    def __init__(self, cam_path_intri, cam_path_extri, camera_num, frames_num, data_root):
+    def __init__(self, cam_path_intri, cam_path_extri, camera_num, frames_num, ratio=1.0, data_root=None):
         self.data_root = data_root
         self.intrix_file = cv2.FileStorage(cam_path_intri, cv2.FILE_STORAGE_READ)
         self.extrix_file = cv2.FileStorage(cam_path_extri, cv2.FILE_STORAGE_READ)
         self.camera_len = camera_num
         self.time_step_len = frames_num
+        self.ratio = ratio
 
         self.cameras_all = []
         cam_names = self.read('names', True, dt='list')
@@ -23,8 +48,15 @@ class Camera:
             cam_dict = {}
 
             cam_dict['K'] = self.read('K_{}'.format(cam_name), True)
-            cam_dict['H'] = int(self.read('H_{}'.format(cam_name), True, dt='real')) or -1
-            cam_dict['W'] = int(self.read('W_{}'.format(cam_name), True, dt='real')) or -1
+            new_K = cam_dict['K'].copy()
+            new_K[0, 0] *= self.ratio
+            new_K[1, 1] *= self.ratio
+            new_K[0, 2] *= self.ratio
+            new_K[1, 2] *= self.ratio
+            cam_dict['K'] = new_K
+
+            cam_dict['H'] = int(self.read('H_{}'.format(cam_name), True, dt='real')) * self.ratio
+            cam_dict['W'] = int(self.read('W_{}'.format(cam_name), True, dt='real')) * self.ratio
             cam_dict['invK'] = np.linalg.inv(cam_dict['K'])
 
             # Extrinsics
@@ -44,15 +76,15 @@ class Camera:
             cam_dict["Rvec"] = Rvec
             cam_dict["P"] = cam_dict['K'] @ cam_dict['RT']
 
-            # Distortion
-            D = self.read('D_{}'.format(cam_name), True)
-            if D is None: D = self.read('dist_{}'.format(cam_name), True)
-            cam_dict["D"] = D
-
-            # Time input
-            cam_dict['t'] = self.read('t_{}'.format(cam_name), False, dt='real') or 0  # temporal index, might all be 0
-            cam_dict['v'] = self.read('v_{}'.format(cam_name), False, dt='real') or 0  # temporal index, might all be 0
-
+            # # Distortion
+            # D = self.read('D_{}'.format(cam_name), True)
+            # if D is None: D = self.read('dist_{}'.format(cam_name), True)
+            # cam_dict["D"] = D
+            #
+            # # Time input
+            # cam_dict['t'] = self.read('t_{}'.format(cam_name), False, dt='real') or 0  # temporal index, might all be 0
+            # cam_dict['v'] = self.read('v_{}'.format(cam_name), False, dt='real') or 0  # temporal index, might all be 0
+            #
             # Bounds, could be overwritten
             cam_dict['n'] = self.read('n_{}'.format(cam_name), False, dt='real') or 0.0001  # temporal index, might all be 0
             cam_dict['f'] = self.read('f_{}'.format(cam_name), False, dt='real') or 1e6  # temporal index, might all be 0
@@ -61,9 +93,9 @@ class Camera:
 
             cam_dict['fov'] = 2 * np.arctan(cam_dict['W'] / (2 * cam_dict['K'][0, 0]))
 
-            # CCM
-            cam_dict['ccm'] = self.read('ccm_{}'.format(cam_name), True)
-            cam_dict['ccm'] = np.eye(3) if cam_dict['ccm'] is None else cam_dict['ccm']
+            # # CCM
+            # cam_dict['ccm'] = self.read('ccm_{}'.format(cam_name), True)
+            # cam_dict['ccm'] = np.eye(3) if cam_dict['ccm'] is None else cam_dict['ccm']
             mm = -cam_dict['R'].T @ cam_dict['T']
             c2w = np.concatenate([cam_dict['R'].T, mm], axis=-1)
             cam_dict['c2w'] = c2w
@@ -82,8 +114,12 @@ class Camera:
             cam_id_path = os.path.join(masks_path, cam_id)
             mask_files = sorted(os.listdir(cam_id_path))[:self.time_step_len]
 
-            cam_i_mask = [np.array(imageio.imread(os.path.join(cam_id_path, mask_file))).astype(np.float32) for
-                          mask_file in mask_files]
+            cam_i_mask = []
+            for mask_file in mask_files:
+                mask = imageio.imread(os.path.join(cam_id_path, mask_file))
+                mask = np.array(mask).astype(np.float32)
+                resized_mask = cv2.resize(mask, (0, 0), fx=self.ratio, fy=self.ratio)
+                cam_i_mask.append(resized_mask)
             self.all_masks.append(np.stack(cam_i_mask))
 
         self.all_masks = np.stack(self.all_masks)
@@ -94,8 +130,9 @@ class Camera:
         print("Loading images")
         for angle_path in tqdm(angle_paths):
             image_files = sorted(os.listdir(angle_path))[:self.time_step_len]
-            now_angle_images = list(
-                map(lambda image_file: imageio.imread(os.path.join(angle_path, image_file)) / 255.0, image_files))
+            now_angle_images = list(map(lambda image_file: cv2.resize(
+                imageio.imread(os.path.join(angle_path, image_file)) / 255.0,
+                (0, 0), fx=self.ratio, fy=self.ratio), image_files))
             img.append(np.stack(now_angle_images))
         self.imgs = np.stack(img, dtype=np.float32)
 
