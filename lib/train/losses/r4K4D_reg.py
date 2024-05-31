@@ -19,8 +19,8 @@ class NetworkWrapper(nn.Module):
 
     def forward(self, batch):
         output = self.net(batch)
-        # save_tensor_image(output['rgb'].squeeze(0)*255, 'output_rgb.png')
-        # save_tensor_image(batch['rgb'].squeeze(0)*255, 'gt_rgb.png')
+        # save_tensor_image(output['rgb'].squeeze(0)*255, 'single-output_rgb.png')
+        # save_tensor_image(batch['rgb'].squeeze(0)*255, 'single-gt_rgb.png')
 
         scalar_stats = {}
         loss = 0
@@ -30,6 +30,8 @@ class NetworkWrapper(nn.Module):
         psnr = -10. * torch.log(color_loss.detach()) / \
                torch.log(torch.Tensor([10.]).to(color_loss.device))
         scalar_stats.update({'psnr': psnr})
+
+
         # # UNDONE: CUDA OUT OF MEMORY.
         # torch.cuda.empty_cache()
         # gc.collect()
@@ -38,9 +40,11 @@ class NetworkWrapper(nn.Module):
         # scalar_stats.update({'lpips': lpips_loss})
         # loss += self.perc_loss_weight * lpips_loss
         output_rgb_msk = output['rgb']*(output['mask'].unsqueeze(-1))
+
+
         gt_rgb_msk = batch['rgb']*(batch['mask'].unsqueeze(-1))
         msk_loss = self.color_crit(output_rgb_msk, gt_rgb_msk)
-        scalar_stats.update({'msk_loss': msk_loss})
+        # scalar_stats.update({'msk_loss': msk_loss})
         loss += self.msk_loss_weight * msk_loss
 
         scalar_stats.update({'loss': loss})

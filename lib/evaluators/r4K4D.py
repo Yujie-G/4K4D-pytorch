@@ -17,14 +17,14 @@ class Evaluator:
         os.system('mkdir -p ' + cfg.result_dir)
         os.system('mkdir -p ' + cfg.result_dir + '/vis')
 
-    def evaluate(self, output, batch):
+    def evaluate(self, output, batch, epoch=None):
         # assert image number = 1
         H, W = batch['meta']['H'].item(), batch['meta']['W'].item()
         pred_rgb = output['rgb'].reshape(H, W, 3).detach().cpu().numpy()
         gt_rgb = batch['rgb'].reshape(H, W, 3).detach().cpu().numpy()
         psnr_item = psnr(gt_rgb, pred_rgb, data_range=1.)
         self.psnrs.append(psnr_item)
-        save_path = os.path.join(cfg.result_dir, 'vis/res.jpg')
+        save_path = os.path.join(cfg.result_dir, f'vis/res-{epoch}.jpg')
         image_float64 = img_utils.horizon_concate(gt_rgb, pred_rgb) * 255.0
         image_int8 = image_float64.astype(np.uint8)
         imageio.imwrite(save_path, image_int8)

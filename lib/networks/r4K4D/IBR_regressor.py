@@ -53,5 +53,5 @@ class ImageBasedSphericalHarmonics(nn.Module):
         sh = sh.view(*sh.shape[:-1], self.out_dim, self.sh_dim // self.out_dim)  # reshape to B, P, 3, SH
 
         # Evaluation of specular SH and base image based rgb
-        rgb = rgb + eval_sh(self.sh_deg, sh, dir).tanh() * self.resd_limit  # B, P, 3
-        return rgb.clip(0, 1)
+        rgb_res = rgb + eval_sh(self.sh_deg, sh, dir).tanh() * self.resd_limit  # B, P, 3
+        return rgb_res.clip(0, 1)

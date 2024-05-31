@@ -36,7 +36,7 @@ class Network(nn.Module):
             for i in range(self.dim_time):
                 self.pcds.append(nn.Parameter(torch.as_tensor(torch.rand(n_points, 3, device='cuda')), requires_grad=True))
         else:
-            pcd_path = cfg.pcds_dir
+            pcd_path = cfg.pcds.pcds_dir
             for f in tqdm(range(self.dim_time), desc='Loading pcds to network'):
                 pcd = read_ply(os.path.join(pcd_path, f'{f:06d}.ply'))
                 self.pcds.append(nn.Parameter(torch.as_tensor(pcd, device='cuda', dtype=torch.float32), requires_grad=True))
