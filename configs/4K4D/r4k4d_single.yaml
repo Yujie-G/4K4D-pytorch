@@ -1,6 +1,6 @@
 task: 4k4d
 gpus: [0]
-exp_name: 'r4k4d_demo'
+exp_name: 'r4k4d_single'
 scene: 'renbody'
 
 # module path
@@ -13,23 +13,24 @@ loss_module: lib.train.losses.r4K4D_reg
 # TODO[future]: add visualizer
 #visualizer_module: lib.visualizers.r4K4D
 task_arg:
-    dim_time : 30
+    dim_time : 1
     camera_use: 48
 
 train_dataset:
     data_root: 'data/renbody/0013_01'
     split: 'train'
     nearset_N_views: 4
-    input_ratio: 1.0
-    dim_time: 30
+    input_ratio: 0.5
+    dim_time: 1
     camera_use: 48
 
 
 test_dataset:
     data_root: 'data/renbody/0013_01'
     split: 'test'
+    input_ratio: 1.0
     dim_time: 1
-    camera_use: 36
+    camera_use: 12
 
 model_cfg:
     skip_loading_points: False
@@ -60,6 +61,7 @@ model_cfg:
 
 train:
     lr: 5e-4
+    weight_decay: 0.01
     num_workers: 1
     batch_size: 1
     lmbda1: 0.001
@@ -70,7 +72,7 @@ test:
     batch_size: 1
 
 
-ep_iter: 50
-eval_ep: 10
+ep_iter: 10
+eval_ep: 1
 save_latest_ep: 1
-log_interval: 10
+log_interval: 2
