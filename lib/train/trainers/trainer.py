@@ -102,7 +102,7 @@ class Trainer(object):
             with torch.no_grad():
                 output, loss, loss_stats, _ = self.network(batch)
                 if evaluator is not None:
-                    image_stats_ = evaluator.evaluate(output, batch)
+                    image_stats_ = evaluator.evaluate(output, batch, epoch)
                     if image_stats_ is not None:
                         image_stats.update(image_stats_)
 

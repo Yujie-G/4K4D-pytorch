@@ -18,7 +18,10 @@ def make_optimizer(cfg, net):
     for key, value in net.named_parameters():
         if not value.requires_grad:
             continue
-        params += [{"params": [value], "lr": lr, "weight_decay": weight_decay, "eps": eps}]
+        if key == 'pcds.0':
+            params += [{"params": [value], "lr": cfg.model_cfg.pcds.lr, "weight_decay": weight_decay, "eps": eps}]
+        else:
+            params += [{"params": [value], "lr": lr, "weight_decay": weight_decay, "eps": eps}]
 
     if 'adam' in cfg.train.optim:
         optimizer = _optimizer_factory[cfg.train.optim](params, lr, weight_decay=weight_decay, eps=eps)
