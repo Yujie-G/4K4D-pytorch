@@ -10,7 +10,7 @@ network_module: lib.networks.r4K4D.network
 evaluator_module: lib.evaluators.r4K4D
 loss_module: lib.train.losses.r4K4D_reg
 
-# TODO[future]: add visualizer
+# [future]: add visualizer
 #visualizer_module: lib.visualizers.r4K4D
 task_arg:
     dim_time : 1
@@ -66,7 +66,7 @@ train:
     weight_decay: 0.01
     num_workers: 1
     batch_size: 1
-    lmbda1: 0.001
+    lmbda1: 0.1
     lmbda2: 0.001
 
 test:

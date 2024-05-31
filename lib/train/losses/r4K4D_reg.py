@@ -3,7 +3,6 @@ import gc
 import torch.nn as nn
 from lib.config import cfg
 from lpips import LPIPS
-from torch.cuda.amp import autocast, GradScaler
 from lib.utils.img_utils import save_tensor_image
 
 class NetworkWrapper(nn.Module):
@@ -31,11 +30,7 @@ class NetworkWrapper(nn.Module):
                torch.log(torch.Tensor([10.]).to(color_loss.device))
         scalar_stats.update({'psnr': psnr})
 
-
-        torch.cuda.empty_cache()
-        gc.collect()
-        with autocast():
-            lpips_loss = self.lpips(output['rgb'].permute(0, 3, 1, 2).float(), batch['rgb'].permute(0, 3, 1, 2).float()).squeeze()
+        lpips_loss = self.lpips(output['rgb'].permute(0, 3, 1, 2), batch['rgb'].permute(0, 3, 1, 2)).squeeze()
         scalar_stats.update({'lpips': lpips_loss})
         loss += self.perc_loss_weight * lpips_loss
         output_rgb_msk = output['rgb']*(output['mask'].unsqueeze(-1))

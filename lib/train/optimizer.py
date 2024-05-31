@@ -18,8 +18,13 @@ def make_optimizer(cfg, net):
     for key, value in net.named_parameters():
         if not value.requires_grad:
             continue
-        if key == 'pcds.0':
+        mod = key.split('.')[0]
+        if mod == 'pcds':
             params += [{"params": [value], "lr": cfg.model_cfg.pcds.lr, "weight_decay": weight_decay, "eps": eps}]
+        elif mod == 'geo_linear':
+            params += [{"params": [value], "lr": cfg.model_cfg.geo_linear.lr, "weight_decay": weight_decay, "eps": eps}]
+        elif mod == 'ibr_regressor':
+            params += [{"params": [value], "lr": cfg.model_cfg.IBR_regressor.lr, "weight_decay": weight_decay, "eps": eps}]
         else:
             params += [{"params": [value], "lr": lr, "weight_decay": weight_decay, "eps": eps}]
 
