@@ -3,6 +3,7 @@ import numpy as np
 import imageio
 import torch
 import torch.utils.data as data
+from tqdm import tqdm
 
 from lib.config import cfg
 from lib.utils.camera.optimizable_cam import Camera
@@ -16,39 +17,33 @@ class Dataset(data.Dataset):
         camera_matrix_optimized_path = os.path.join(self.data_root, 'optimized')
         camera_intri_path = os.path.join(camera_matrix_optimized_path, "intri.yml")
         camera_extri_path = os.path.join(camera_matrix_optimized_path, "extri.yml")
-        self.camera = Camera(camera_intri_path, camera_extri_path)
-        self.camera_len = self.camera.get_camera_length
-        self.time_step_len = self.camera.get_timestep_length
+        if self.split == 'train':
+            self.camera_len = cfg.train_dataset.camera_use
+            self.time_step_len = cfg.train_dataset.dim_time
+        else:
+            self.camera_len = cfg.test_dataset.camera_use
+            self.time_step_len = cfg.test_dataset.dim_time
+        self.camera = Camera(camera_intri_path, camera_extri_path, self.camera_len, self.time_step_len, self.data_root)
 
         self.input_ratio = cfg.train_dataset['input_ratio']
 
-
-        image_path = os.path.join(self.data_root, 'images_calib')
-        angles_all = os.listdir(image_path)
-        angles_all.sort()
-        img = []
-        for angle in angles_all:
-            image_files = os.listdir(os.path.join(image_path, angle))
-            image_files.sort()
-            now_angle_images = []
-            for index, image_file in enumerate(image_files):
-                image = imageio.imread(os.path.join(image_path, angle, image_file))/255
-                now_angle_images.append(image)
-                if index > self.camera.use_frames - 2:
-                    break
-            img.append(np.stack(now_angle_images))
-        self.img = np.stack(img[:self.camera_len], dtype=np.float32)
+        self.imgs = self.camera.imgs
+        print(f"{self.split} dataset init done")
 
     def __getitem__(self, index):
-
-        cam_index = index % self.camera_len
-        time_step_index = index // self.camera_len
+        if self.split == 'train':
+            cam_index = index % self.camera_len
+            time_step_index = index // self.camera_len
+        else: # test
+            # rand int [0, camera_len*time_step_len)
+            cam_index = np.random.randint(0, self.camera_len)
+            time_step_index = np.random.randint(0, self.time_step_len)
         cam = self.camera.get_camera(cam_index)
         t_bounds = np.array([0.0, self.time_step_len - 1], dtype=np.float32).reshape(2, -1)
         bounds = cam.bounds
         bounds = np.concatenate([bounds, t_bounds], axis=1)
         # wbounds=wbounds.reshape(-1)
-        origin_rgb = self.img[cam_index, time_step_index]
+        origin_rgb = self.imgs[cam_index, time_step_index]
         mask = self.camera.all_masks[cam_index, time_step_index, :, :] / 255.0
 
         mask_min_x, mask_max_x, mask_min_y, mask_max_y = 0, mask.shape[0], 0, mask.shape[1]
@@ -74,7 +69,7 @@ class Dataset(data.Dataset):
 
         # handle N nearest views for IBR part
         N_nearest_cam_index, src_exts, _ = self.get_nearest_pose_cameras(cam_index)
-        rgb_N_nearest = self.img[N_nearest_cam_index, time_step_index]
+        rgb_N_nearest = self.imgs[N_nearest_cam_index, time_step_index]
 
         # ret.update({"N_reference_images_index": N_nearest_cam_index})
         masks = self.camera.all_masks[N_nearest_cam_index]
@@ -143,5 +138,8 @@ class Dataset(data.Dataset):
         return distance_index, RTs_choose, KS_choose
 
     def __len__(self):
-        return self.camera_len * self.time_step_len
+        if self.split == 'train':
+            return self.camera_len * self.time_step_len
+        else:
+            return 1
 

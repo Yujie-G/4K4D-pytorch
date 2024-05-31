@@ -27,6 +27,7 @@ class Network(nn.Module):
         self.ibr_regressor = IBR_SH(model_cfg.IBR_regressor)
         self.geo_linear = GeoLinear(feature_dim, model_cfg.geo_linear)
         self.K_points = model_cfg.K_points
+        print(f'Network initialized with {feature_dim} feature dim')
 
     def init_pcds(self, cfg):
         skip_loading_points = cfg.skip_loading_points
@@ -93,8 +94,6 @@ class Network(nn.Module):
         return rgb, acc, dpt
 
     def forward(self, batch):
-        # index, time = batch['meta']['latent_index'], batch['time_step']
-        # pcd = torch.stack([self.pcds[l] for l in index])  # B, N, 3
         time = batch['time_step']
         pcd = self.pcds[time].unsqueeze(0)   # B, N, 3
         pcd_t = time.view(1, 1).expand(1, pcd.shape[1], 1)  # B, N, 1
@@ -104,7 +103,8 @@ class Network(nn.Module):
         rad, density = self.geo_linear(xyzt_feat)  # B, N, 1
 
         self.ibr_encoder(pcd, batch)  # update batch['output']
-        direction = normalize(pcd.detach() - (-batch['R'].transpose(-2, -1) @ batch['T']).transpose(-2, -1))  # B, N, 3
+        rays_o = (-batch['R'].mT @ batch['T']).mT
+        direction = normalize(pcd.detach() - rays_o)  # B, N, 3
         rgb = self.ibr_regressor(torch.cat([xyzt_feat, direction], dim=-1), batch)  # B, N, 3
 
         # # DEBUG:

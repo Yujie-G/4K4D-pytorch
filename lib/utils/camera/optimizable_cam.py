@@ -3,22 +3,22 @@ import cv2
 import os
 import imageio.v2 as imageio
 import numpy as np
-
+from tqdm import tqdm
 
 from lib.utils.camera.r4k4d_cam_param import CamParams
 from lib.utils.ply_utils import *
-from lib.config import cfg
 
 class Camera:
-    def __init__(self, cam_path_intri, cam_path_extri) -> None:
+    def __init__(self, cam_path_intri, cam_path_extri, camera_num, frames_num, data_root):
+        self.data_root = data_root
         self.intrix_file = cv2.FileStorage(cam_path_intri, cv2.FILE_STORAGE_READ)
         self.extrix_file = cv2.FileStorage(cam_path_extri, cv2.FILE_STORAGE_READ)
-        self.use_camera_num = cfg.task_arg.camera_use
-        self.use_frames = cfg.task_arg.dim_time
+        self.camera_len = camera_num
+        self.time_step_len = frames_num
 
         self.cameras_all = []
         cam_names = self.read('names', True, dt='list')
-        for cam_name in cam_names[:self.use_camera_num]:
+        for cam_name in cam_names[:self.camera_len]:
             # Intrinsics
             cam_dict = {}
 
@@ -73,57 +73,31 @@ class Camera:
 
         # handle masks
         self.all_masks = []
-        masks_path = os.path.join(cfg.train_dataset['data_root'], 'masks')
-        cam_ids = os.listdir(masks_path)
-        cam_ids.sort()
-        for cam_id in cam_ids[:self.use_camera_num]:
-            mask_files = os.listdir(os.path.join(masks_path, cam_id))
-            mask_files.sort()
-            cam_i_mask = []
-            for t_frame, mask_file in enumerate(mask_files):
-                mask = imageio.imread(os.path.join(masks_path, cam_id, mask_file))
-                mask = np.array(mask).astype(np.float32)
-                cam_i_mask.append(mask)
-                if t_frame > self.use_frames - 2:
-                    break
-            cam_i_mask = np.stack(cam_i_mask)
-            self.all_masks.append(cam_i_mask)
+        masks_path = os.path.join(self.data_root, 'masks')
+        cam_ids = sorted(os.listdir(masks_path))
+
+        print("Loading masks")
+
+        for cam_id in tqdm(cam_ids[:self.camera_len]):
+            cam_id_path = os.path.join(masks_path, cam_id)
+            mask_files = sorted(os.listdir(cam_id_path))[:self.time_step_len]
+
+            cam_i_mask = [np.array(imageio.imread(os.path.join(cam_id_path, mask_file))).astype(np.float32) for
+                          mask_file in mask_files]
+            self.all_masks.append(np.stack(cam_i_mask))
 
         self.all_masks = np.stack(self.all_masks)
-        self.mask_max_len_x = 0
-        self.mask_max_len_y = 0
 
-        # handle point clouds
-        self.all_timestep_pcds = []
-        #
-        # for i in range(self.all_masks.shape[1]):
-        #     mask = torch.tensor(self.all_masks)[:, i, :, :]
-        #     # bouding_box=self.extrix_file.getNode("bounds_00").mat()
-        #     # voxel_now_step = process_voxels(cfg, self.cameras_all, mask, pcd_index=i)
-        #
-        #     # def process_voxels(cfg, camera_all=None, all_masks=None, pcd_index=0, use_octree=False):
-        #     assert self.cameras_all is not None, "Bounding box is not set"
-        #     pcd_path = os.path.join(cfg.train_dataset['data_root'], "surfs")
-        #     if not os.path.exists(pcd_path):
-        #         os.makedirs(pcd_path)
-        #     pcd_path = os.path.join(pcd_path, f"{i:06d}.ply")
-        #     if not os.path.exists(pcd_path):
-        #         bounding_box = self.cameras_all[0].bounds
-        #         iteration = cfg.train_dataset["iteration"]
-        #         # cameras=cfg.cameras
-        #         voxel_num = cfg.train_dataset['voxel_num_start']
-        #         x_lims, y_lims, z_lims = bounding_box[:, 0], bounding_box[:, 1], bounding_box[:, 2]
-        #         voxel_now_step, voxel_size = init_voxels(x_lims, y_lims, z_lims, voxel_num)
-        #
-        #         for i in range(iteration):
-        #             for index, cam in enumerate(self.cameras_all):
-        #                 mask_now = mask[index, :, :]
-        #                 voxel_now_step, voxel_size = set_voxels(voxel_now_step, voxel_size, cam, masks=mask_now)
-        #         save_ply(voxel_now_step, pcd_path)
-        #     else:
-        #         voxel_now_step = read_ply(pcd_path)
-        #
-        #     self.all_timestep_pcds.append(voxel_now_step)
+        img = []
+        image_path = os.path.join(self.data_root, 'images_calib')
+        angle_paths = [os.path.join(image_path, angle) for angle in sorted(os.listdir(image_path))[:self.camera_len]]
+        print("Loading images")
+        for angle_path in tqdm(angle_paths):
+            image_files = sorted(os.listdir(angle_path))[:self.time_step_len]
+            now_angle_images = list(
+                map(lambda image_file: imageio.imread(os.path.join(angle_path, image_file)) / 255.0, image_files))
+            img.append(np.stack(now_angle_images))
+        self.imgs = np.stack(img, dtype=np.float32)
 
     def read(self, node, use_intrix=True, dt="mat"):
         if use_intrix:
@@ -148,16 +122,5 @@ class Camera:
             raise NotImplementedError
         return output
 
-    def get_pcds(self, time_step: int):
-        return self.all_timestep_pcds[time_step]
-
     def get_camera(self, camera_index: int):
         return self.cameras_all[camera_index]
-
-    @property
-    def get_camera_length(self):
-        return len(self.cameras_all)
-
-    @property
-    def get_timestep_length(self):
-        return self.use_frames

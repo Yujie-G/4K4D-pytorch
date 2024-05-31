@@ -13,7 +13,7 @@ loss_module: lib.train.losses.r4K4D_reg
 # TODO[future]: add visualizer
 #visualizer_module: lib.visualizers.r4K4D
 task_arg:
-    dim_time : 1
+    dim_time : 30
     camera_use: 48
 
 train_dataset:
@@ -21,11 +21,15 @@ train_dataset:
     split: 'train'
     nearset_N_views: 4
     input_ratio: 1.0
+    dim_time: 30
+    camera_use: 48
 
 
 test_dataset:
     data_root: 'data/renbody/0013_01'
     split: 'test'
+    dim_time: 1
+    camera_use: 36
 
 model_cfg:
     skip_loading_points: False
@@ -56,9 +60,12 @@ train:
     lr: 5e-3
     num_workers: 1
     batch_size: 1
-    lmbda1: 0.1
-    lmbda2: 0.1
+    lmbda1: 0.001
+    lmbda2: 0.001
 
+test:
+    num_workers: 1
+    batch_size: 1
 
 
 ep_iter: 50
