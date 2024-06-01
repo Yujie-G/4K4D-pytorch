@@ -55,7 +55,7 @@ model_cfg:
         width: 64
         depth: 1
     geo_linear:
-        lr: 0.5
+        lr: 0.005
         weight_decay: 0.1
         width: 64
         depth: 2
@@ -75,7 +75,7 @@ test:
     batch_size: 1
 
 
-ep_iter: 10
+ep_iter: 48
 eval_ep: 1
 save_latest_ep: 1
 log_interval: 2

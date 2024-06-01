@@ -22,8 +22,8 @@ class NetworkWrapper(nn.Module):
         rgb_gt = batch['rgb']
         mask_bound = batch['meta']['mask_bound']
         min_x, max_x, min_y, max_y = mask_bound[0].item(), mask_bound[1].item(), mask_bound[2].item(), mask_bound[3].item()
-        save_tensor_image(output['rgb'].squeeze(0)*255, 'single-output_rgb.png')
-        save_tensor_image(batch['rgb'].squeeze(0)*255, 'single-gt_rgb.png')
+        # save_tensor_image(output['rgb'].squeeze(0)*255, 'single-output_rgb.png')
+        # save_tensor_image(batch['rgb'].squeeze(0)*255, 'single-gt_rgb.png')
 
         scalar_stats = {}
         loss = 0
