@@ -986,15 +986,13 @@ def torchRender(xyz, rgb, rad, density, H, W, K, R, T, K_points = 8):
     ndc_pcd = PointsRasterizer().transform(Pointclouds(xyz), cameras=PerspectiveCameras(K=K, R=R, T=T, device=xyz.device)).points_padded()  # B, N, 3
     ndc_rad = abs(K[..., 1, 1][..., None] * rad[..., 0] / (ndc_pcd[..., -1] + 1e-10))  # z: B, 1 * B, N, world space radius
 
-    ndc_rad = ndc_rad.float()
+    ndc_rad = ndc_rad
     ndc_rad = ndc_rad.reshape(-1)
 
-    ndc_pcd = ndc_pcd.unsqueeze(0).float()
+    ndc_pcd = ndc_pcd.unsqueeze(0)
     ndc_pcd = ndc_pcd.reshape(1, -1, 3)
 
-    ndc_radius_c = ndc_rad.float().clone()
-
-    idx, zbuf, dists = rasterize_points(Pointclouds(ndc_pcd, rgb), (H_d, W_d), radius=ndc_radius_c, points_per_pixel=K_points, max_points_per_bin = 300000)
+    idx, zbuf, dists = rasterize_points(Pointclouds(ndc_pcd, rgb), (H_d, W_d), radius=ndc_rad, points_per_pixel=K_points, max_points_per_bin = 300000)
 
     msk = idx != -1
     idx = torch.where(msk, idx, 0).long()

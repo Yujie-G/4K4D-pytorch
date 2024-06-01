@@ -22,7 +22,7 @@ def make_optimizer(cfg, net):
         if mod == 'pcds':
             params += [{"params": [value], "lr": cfg.model_cfg.pcds.lr, "weight_decay": weight_decay, "eps": eps}]
         elif mod == 'geo_linear':
-            params += [{"params": [value], "lr": cfg.model_cfg.geo_linear.lr, "weight_decay": weight_decay, "eps": eps}]
+            params += [{"params": [value], "lr": cfg.model_cfg.geo_linear.lr, "weight_decay": cfg.model_cfg.geo_linear.weight_decay, "eps": eps}]
         elif mod == 'ibr_regressor':
             params += [{"params": [value], "lr": cfg.model_cfg.IBR_regressor.lr, "weight_decay": weight_decay, "eps": eps}]
         else:

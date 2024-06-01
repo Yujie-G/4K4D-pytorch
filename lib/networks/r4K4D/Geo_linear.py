@@ -29,5 +29,9 @@ class GeoLinear(nn.Module):
         for layer in self.linear:
             h = layer(h)
 
-        r, dens = self.geo_actvn(h, 0.001, 0.015, -5.0, 5.0)
+        r, dens = self.geo_actvn(h, 0.001, 0.015, 0.0, 0.0)
+        r_max = r.max()
+        r_min = r.min()
+        dens_max = dens.max()
+        dens_min = dens.min()
         return r, dens
