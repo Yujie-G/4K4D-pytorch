@@ -36,9 +36,12 @@ class Dataset(data.Dataset):
         if self.split == 'train':
             cam_index = index % self.camera_len
             time_step_index = index // self.camera_len
+            # cam_index = 23
+            # time_step_index = 0
         else: # test
             # rand int [0, camera_len*time_step_len)
             cam_index = np.random.randint(0, self.camera_len)
+            cam_index = 23
             time_step_index = np.random.randint(0, self.time_step_len)
         cam = self.camera.get_camera(cam_index)
         t_bounds = np.array([0.0, self.time_step_len - 1], dtype=np.float32).reshape(2, -1)
@@ -49,9 +52,8 @@ class Dataset(data.Dataset):
         mask = self.camera.all_masks[cam_index, time_step_index, :, :] / 255.0
 
         mask_min_x, mask_max_x, mask_min_y, mask_max_y = 0, mask.shape[0], 0, mask.shape[1]
-            # np.where(mask > 0)[0].min(), np.where(mask > 0)[0].max(), np.where(mask > 0)[1].min(), np.where(mask > 0)[1].max()
+        mask_bound = [np.where(mask > 0)[0].min(), np.where(mask > 0)[0].max(), np.where(mask > 0)[1].min(), np.where(mask > 0)[1].max()]
 
-        # uv_rgb = np.array([mask_min_x, mask_min_y])
 
         rgb = origin_rgb * mask[..., np.newaxis]
         mask = mask[mask_min_x:mask_max_x, mask_min_y:mask_max_y]
@@ -67,7 +69,7 @@ class Dataset(data.Dataset):
         ret.update({'mask': mask})
         ret.update({"time_step": time_step_index, "cam_index": cam_index, "bounds": bounds})
         ret.update({"R": cam.R, "T": cam.T, "K": cam_k, "P": cam_p, "RT": cam.RT, "near": cam.n, "far": cam.f, "fov": cam.fov})
-        ret.update({'meta': {'H': H, 'W': W}})
+        ret.update({'meta': {'H': H, 'W': W, "mask_bound": mask_bound}})
 
         # handle N nearest views for IBR part
         N_nearest_cam_index, src_exts, _ = self.get_nearest_pose_cameras(cam_index)

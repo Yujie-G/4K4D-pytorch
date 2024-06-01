@@ -29,6 +29,12 @@ class Evaluator:
         image_int8 = image_float64.astype(np.uint8)
         imageio.imwrite(save_path, image_int8)
 
+        pred_depth = output['dpt'].squeeze().detach().cpu().numpy()
+        img_utils.save_numpy_image(pred_depth, os.path.join(cfg.result_dir, f'vis/depth-{epoch}.png'))
+        # pred_depth = output['acc'].reshape(H, W, 1).detach().cpu().numpy()
+        # img_utils.save_numpy_image(pred_depth, os.path.join(cfg.result_dir, f'vis/acc-{epoch}.png'))
+
+
     def summarize(self):
         ret = {}
         ret.update({'psnr': np.mean(self.psnrs)})

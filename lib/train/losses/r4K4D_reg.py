@@ -3,7 +3,7 @@ import gc
 import torch.nn as nn
 from lib.config import cfg
 from lpips import LPIPS
-from lib.utils.img_utils import save_tensor_image
+from lib.utils.img_utils import save_tensor_image, save_numpy_image
 
 class NetworkWrapper(nn.Module):
     def __init__(self, net, train_loader):
@@ -18,6 +18,10 @@ class NetworkWrapper(nn.Module):
 
     def forward(self, batch):
         output = self.net(batch)
+        rgb_output = output['rgb']
+        rgb_gt = batch['rgb']
+        mask_bound = batch['meta']['mask_bound']
+        min_x, max_x, min_y, max_y = mask_bound[0].item(), mask_bound[1].item(), mask_bound[2].item(), mask_bound[3].item()
         save_tensor_image(output['rgb'].squeeze(0)*255, 'single-output_rgb.png')
         save_tensor_image(batch['rgb'].squeeze(0)*255, 'single-gt_rgb.png')
 
@@ -33,10 +37,12 @@ class NetworkWrapper(nn.Module):
         lpips_loss = self.lpips(output['rgb'].permute(0, 3, 1, 2), batch['rgb'].permute(0, 3, 1, 2)).squeeze()
         scalar_stats.update({'lpips': lpips_loss})
         loss += self.perc_loss_weight * lpips_loss
+
+
         output_rgb_msk = output['rgb']*(output['mask'].unsqueeze(-1))
-
-
+        output_rgb_msk = output_rgb_msk[:, min_x:max_x, min_y:max_y, :]
         gt_rgb_msk = batch['rgb']*(batch['mask'].unsqueeze(-1))
+        gt_rgb_msk = gt_rgb_msk[:, min_x:max_x, min_y:max_y, :]
         msk_loss = self.color_crit(output_rgb_msk, gt_rgb_msk)
         # scalar_stats.update({'msk_loss': msk_loss})
         loss += self.msk_loss_weight * msk_loss
