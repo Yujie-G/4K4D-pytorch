@@ -5,6 +5,9 @@ Forked from [LearningNeRF](https://github.com/pengsida/learning_nerf)
 
 ## TODO
 
+- [ ] use opengl-based renderer to implement the depth peeling
+- [ ] try other backbones of the K-plane encoder
+- [ ] use the easyvolcap to visualize the 4D volume video
 
 ## 4K4D Result
 
